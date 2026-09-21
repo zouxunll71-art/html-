@@ -617,3 +617,10 @@ for(const container of [$('attachments'),$('messages')])container.addEventListen
 
 window.receivePreviewMode=running=>{state.editing=!running;for(const [id,selected] of [['top-edit-mode',!running],['top-run-mode',running],['edit-mode',!running],['run-mode',running]]){$(id).classList.toggle('selected',selected);$(id).setAttribute('aria-pressed',String(selected))}};
 for(const [id,running] of [['top-edit-mode',false],['top-run-mode',true]])$(id).onclick=attempt(async()=>{if(!project()||project().nativePreview===false){toast('请先选择已接入工作台的项目');return}if(nativeHost)nativeMessage({action:'previewMode',running});else await setMode(!running)});
+
+// Keep ordinary typing and IME input free of mode-switch shortcuts.
+document.addEventListener('keydown',event=>{
+ if(event.code!=='KeyQ'||!event.ctrlKey||event.metaKey||event.altKey||event.shiftKey||event.repeat||event.isComposing)return;
+ if($('dialog').open||window.imageViewerActive||window.annotationActive)return;
+ event.preventDefault();event.stopPropagation();$(state.editing?'top-run-mode':'top-edit-mode').click();
+},true);
