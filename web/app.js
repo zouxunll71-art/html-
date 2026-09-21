@@ -183,7 +183,9 @@ function renderMessages(immediate = false) {
     }).join('');
     const markup=(html || emptyChat) + (state.running[state.thread] ? `<div class="typing">${icon('loader-circle')}Codex 正在处理…</div>` : '');
     if(markup===lastMessagesMarkup&&state.thread===lastMessagesThread)return;
+    const images=new Map([...el.querySelectorAll('img.conversation-image')].filter(img=>img.complete&&img.naturalWidth>0).map(img=>[img.getAttribute('src'),img]));
     lastMessagesMarkup=markup;lastMessagesThread=state.thread;el.innerHTML=markup;
+    el.querySelectorAll('img.conversation-image').forEach(img=>{const previous=images.get(img.getAttribute('src'));if(previous){img.replaceWith(previous);images.delete(img.getAttribute('src'));}});
     el.querySelectorAll('img.conversation-image').forEach(img=>{
       img.addEventListener('error',async()=>{
         try{
@@ -207,7 +209,7 @@ function loadHistory(thread) {
   for (const turn of thread?.turns || []) {
     for (const item of turn.items || []) state.items.set(item.id, {...item,_turnId:turn.id});
     if (turn.error) state.items.set('error:' + turn.id, { type: 'clientError', text: turn.error.message });
-    if (turn.status === 'inProgress'&&!state.running[thread.id]) state.remoteRunning[thread.id] = turn.id;
+    if (turn===thread.turns.at(-1)&&turn.status === 'inProgress'&&!state.running[thread.id]) state.remoteRunning[thread.id] = turn.id;
   }
   renderMessages(true); updateRunning();
 }
@@ -372,7 +374,7 @@ function eventMessage(event) {
   if (event.method === 'account/login/completed') { loadCodex(); return; }
   if (event.method === 'account/rateLimits/updated') { refreshUsage(); return; }
   if (event.method === 'turn/started') { state.running[p.threadId] = p.turn.id; updateRunning(); renderSidebar(); }
-  if (event.method === 'turn/completed') { delete state.running[p.threadId]; updateRunning(); renderSidebar(); refreshUsage(); }
+  if (event.method === 'turn/completed') { delete state.remoteRunning[p.threadId];delete state.running[p.threadId];state.items.delete('reconnect:'+p.threadId); updateRunning(); renderSidebar(); refreshUsage(); }
   if (p.threadId !== state.thread) return;
   if (event.method === 'item/started' || event.method === 'item/completed') state.items.set(p.item.id, {...p.item,_turnId:p.turnId});
   if (event.method === 'item/agentMessage/delta') { const item = state.items.get(p.itemId) || { id: p.itemId, type: 'agentMessage', text: '', _turnId:p.turnId }; item.text += p.delta; state.items.set(item.id, item); }
@@ -382,7 +384,7 @@ function eventMessage(event) {
     for (const [id, request] of state.requests) if (request.params.threadId === p.threadId) state.requests.delete(id);
     renderRequests(); attempt(refreshRegistry)(); attempt(() => refreshEditor())();
   }
-  if (event.method === 'error') { state.items.set('error:' + Date.now(), { type: 'clientError', text: p.error?.message || p.message || '执行出错' }); }
+  if (event.method === 'error') { const message=p.error?.message||p.message||'执行出错';const retry=p.willRetry===true||/^Reconnecting\.\.\./i.test(message);state.items.set(retry?'reconnect:'+p.threadId:'error:'+Date.now(),{type:'clientError',text:retry?'连接中断，正在重试；已生成的内容会保留。':message}); }
   renderMessages();
 }
 let stream;
@@ -561,14 +563,15 @@ $('skills-nav').onclick=()=>showCapabilities('skills');$('plugins-nav').onclick=
 let tailSyncBusy=false,lastTailSignature='',lastTailThread='';
 async function syncConversationTail(){
   const id=state.thread;
-  if(!id||document.hidden||$('dialog').open||state.switching||state.pendingSend||state.running[id]||tailSyncBusy)return;
-  tailSyncBusy=true;
+  if(!id||document.hidden||$('dialog').open||state.switching||state.pendingSend||tailSyncBusy)return;
+  tailSyncBusy=true;const startSequence=state.sequence;
   try{
     const value=await api('/api/history?id='+encodeURIComponent(id)+'&tail=1'+(lastTailThread===id?'&revision='+encodeURIComponent(lastTailSignature):''));
-    if(state.thread!==id||state.switching||state.running[id])return;
+    if(state.thread!==id||state.switching||state.sequence!==startSequence)return;
     if(value.unchanged)return;
+    const active=state.running[id];if(active&&value.thread.turns.some(t=>t.id===active&&['completed','failed','interrupted'].includes(t.status)))delete state.running[id];
     lastTailThread=id;lastTailSignature=value.revision;delete state.remoteRunning[id];
-    for(const turn of value.thread.turns||[]){for(const item of turn.items||[])state.items.set(item.id,{...item,_turnId:turn.id});if(turn.status==='inProgress')state.remoteRunning[id]=turn.id;if(turn.error)state.items.set('error:'+turn.id,{type:'clientError',text:turn.error.message})}
+    for(const turn of value.thread.turns||[]){for(const item of turn.items||[])state.items.set(item.id,{...item,_turnId:turn.id});if(turn===value.thread.turns.at(-1)&&turn.status==='inProgress')state.remoteRunning[id]=turn.id;if(turn.error)state.items.set('error:'+turn.id,{type:'clientError',text:turn.error.message})}
     renderMessages();updateRunning();
   }finally{tailSyncBusy=false}
 }

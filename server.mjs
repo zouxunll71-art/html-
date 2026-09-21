@@ -279,6 +279,8 @@ async function handle(req, res) {
   if (req.method === 'GET' && url.pathname === '/api/history') {
     await sidebar();
     const thread=conversationMedia.thread(await history(url.searchParams.get('id'),url.searchParams.has('tail')));
+    const active=running.get(thread.id);const finished=thread.turns.find(t=>t.id===active&&['completed','failed','interrupted'].includes(t.status));
+    if(finished){running.delete(thread.id);publish({method:'turn/completed',params:{threadId:thread.id,turn:finished}});}
     const revision=crypto.createHash('sha256').update(JSON.stringify(thread.turns)).digest('hex');
     return json(res,url.searchParams.get('revision')===revision?{unchanged:true,revision}:{thread,sequence,revision});
   }
