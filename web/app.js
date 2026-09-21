@@ -624,3 +624,12 @@ document.addEventListener('keydown',event=>{
  if($('dialog').open||window.imageViewerActive||window.annotationActive)return;
  event.preventDefault();event.stopPropagation();$(state.editing?'top-run-mode':'top-edit-mode').click();
 },true);
+
+window.receiveClipboardImage=attempt(async data=>{
+ const blob=await (await fetch(data)).blob();await addFiles([new File([blob],'剪贴板图片.png',{type:'image/png'})]);$('prompt').focus();window.reportNativeLayout();
+});
+
+$('prompt').addEventListener('keydown',event=>{
+ if(nativeHost&&event.metaKey&&!event.ctrlKey&&!event.altKey&&event.code==='KeyV'&&!event.isComposing){event.preventDefault();event.stopPropagation();nativeMessage({action:'pasteClipboard'});}
+});
+window.receiveClipboardText=text=>{const input=$('prompt');input.setRangeText(text,input.selectionStart,input.selectionEnd,'end');input.dispatchEvent(new Event('input'));};

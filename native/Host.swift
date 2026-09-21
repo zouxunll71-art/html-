@@ -5,6 +5,13 @@ import UniformTypeIdentifiers
 final class ClientWebView: WKWebView {
  var passthrough=[CGRect]()
  var modal=false
+ var pasteImage:(()->Bool)?
+ override func paste(_ sender:Any?){
+  evaluateJavaScript("document.activeElement?.id === 'prompt'"){[weak self] result,_ in
+   guard let self=self else{return};if result as? Bool == true,self.pasteImage?() == true{return};self.pasteNormally(sender)
+  }
+ }
+ private func pasteNormally(_ sender:Any?){super.paste(sender)}
  override func hitTest(_ point:CGPoint,with event:UIEvent?)->UIView? {
   if !modal && passthrough.contains(where:{$0.contains(point)}) {return nil}
   return super.hitTest(point,with:event)
@@ -20,6 +27,11 @@ final class ClientHostController:UIViewController,WKScriptMessageHandler,WKNavig
  var embedded=false
  var currentProject:String?
  var projectLoading=false
+ override var keyCommands:[UIKeyCommand]?{let paste=UIKeyCommand(title:"粘贴",action:#selector(pasteClipboardShortcut),input:"v",modifierFlags:.command);paste.wantsPriorityOverSystemBehavior=true;return [paste]}
+ @objc func pasteClipboardShortcut(){web.evaluateJavaScript("document.activeElement?.id === 'prompt'"){[weak self] value,_ in
+  guard let self=self else{return};guard value as? Bool == true else{self.web.paste(nil);return}
+  if self.web.pasteImage?() != true,let text=UIPasteboard.general.string,let data=try? JSONSerialization.data(withJSONObject:[text]),let json=String(data:data,encoding:.utf8){self.web.evaluateJavaScript("window.receiveClipboardText?.(\(json)[0])",completionHandler:nil)}
+ }}
  override func viewDidLoad(){
   super.viewDidLoad();view.backgroundColor = .white
   let config=WKWebViewConfiguration();config.userContentController.add(self,name:"native")
@@ -30,6 +42,11 @@ final class ClientHostController:UIViewController,WKScriptMessageHandler,WKNavig
   folderDrop.addInteraction(UIDropInteraction(delegate:self));folderDrop.addGestureRecognizer(UITapGestureRecognizer(target:self,action:#selector(pickFolder)))
   leftPanel.clipsToBounds=true;rightPanel.clipsToBounds=true
   leftPanel.backgroundColor=UIColor(studioHex:"#F8FAFC");rightPanel.backgroundColor = .white
+  web.pasteImage={[weak self] in
+   guard let self=self,let image=UIPasteboard.general.image,let data=image.pngData() else{return false}
+   let file=FileManager.default.temporaryDirectory.appendingPathComponent("clipboard-"+UUID().uuidString+".png")
+   do{try data.write(to:file);let json=String(data:try JSONSerialization.data(withJSONObject:[file.path]),encoding:.utf8)!;self.web.evaluateJavaScript("window.receiveComposerFiles?.(\(json))",completionHandler:nil);return true}catch{return false}
+  }
   web.load(URLRequest(url:URL(string:"http://127.0.0.1:18777/?native=1")!))
  }
  override func viewDidLayoutSubviews(){super.viewDidLayoutSubviews();let frame=view.safeAreaLayoutGuide.layoutFrame;guard web.frame != frame else{return};web.frame=frame;web.evaluateJavaScript("window.reportNativeLayout?.(true)",completionHandler:nil)}
@@ -64,6 +81,8 @@ final class ClientHostController:UIViewController,WKScriptMessageHandler,WKNavig
   switch body["action"] as? String {
   case "previewMode":
    embed();guard let running=body["running"] as? Bool else{return};editor.mode.selectedSegmentIndex=running ? 1:0;editor.toggleRun()
+  case "pasteClipboard":
+   if web.pasteImage?() != true,let text=UIPasteboard.general.string,let data=try? JSONSerialization.data(withJSONObject:[text]),let json=String(data:data,encoding:.utf8){web.evaluateJavaScript("window.receiveClipboardText?.(\(json)[0])",completionHandler:nil)}
   case "copyImage":
    guard let raw=body["data"] as? String,let comma=raw.firstIndex(of:","),let data=Data(base64Encoded:String(raw[raw.index(after:comma)...])),let image=UIImage(data:data) else{web.evaluateJavaScript("window.imageCopyFinished?.(false)",completionHandler:nil);return}
    UIPasteboard.general.image=image;web.evaluateJavaScript("window.imageCopyFinished?.(true)",completionHandler:nil)
@@ -165,6 +184,14 @@ final class ClientHostController:UIViewController,WKScriptMessageHandler,WKNavig
 }
 @main final class AppDelegate:UIResponder,UIApplicationDelegate {
  var window:UIWindow?
+ override func buildMenu(with builder:UIMenuBuilder){
+  super.buildMenu(with:builder)
+  builder.replaceChildren(ofMenu:.standardEdit){children in children.map{element in
+   if let command=element as? UICommand,command.action == #selector(UIResponderStandardEditActions.paste(_:)){return UIKeyCommand(title:"粘贴",action:#selector(ClientHostController.pasteClipboardShortcut),input:"v",modifierFlags:.command)}
+   return element
+  }}
+ }
+
  func application(_ application:UIApplication,didFinishLaunchingWithOptions options:[UIApplication.LaunchOptionsKey:Any]?=nil)->Bool {
   let w=UIWindow(frame:UIScreen.main.bounds);w.rootViewController=ClientHostController();w.overrideUserInterfaceStyle = .light;w.makeKeyAndVisible();window=w
   if let scene=w.windowScene {scene.sizeRestrictions?.minimumSize=CGSize(width:1100,height:780);scene.sizeRestrictions?.maximumSize=CGSize(width:3000,height:1900)}
