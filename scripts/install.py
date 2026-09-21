@@ -3,6 +3,16 @@
 import argparse,os,sys,shutil,subprocess,importlib.util,json
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
+def desktop_shortcut(app,home=None):
+ home=Path.home() if home is None else Path(home)
+ desktop=home/'Desktop';desktop.mkdir(parents=True,exist_ok=True)
+ link=desktop/'HTML Native Studio.app';number=1
+ # Preserve any existing desktop file or shortcut to a different installation.
+ while os.path.lexists(link):
+  if link.is_symlink() and link.resolve()==app.resolve():return link
+  number+=1;link=desktop/f'HTML Native Studio ({number}).app'
+ link.symlink_to(app,target_is_directory=True)
+ return link
 def main():
  parser=argparse.ArgumentParser();parser.add_argument('--check',action='store_true');args=parser.parse_args()
  if sys.platform!='darwin':raise RuntimeError('目前仅支持 macOS，Windows/Linux 尚未提供。')
@@ -35,7 +45,12 @@ def main():
  subprocess.run(['/bin/zsh',str(engine/'scripts/build.sh')],cwd=engine,env=env,check=True)
  subprocess.run([sys.executable,str(client/'native/build_all.py')],cwd=client,env=env,check=True)
  (base/'installation.json').write_text(json.dumps({'engine':str(engine),'client':str(client),'app':str(app)},ensure_ascii=False,indent=2))
- print('安装完成，请打开：',app)
+ try:
+  shortcut=desktop_shortcut(app)
+  print('安装完成，双击桌面图标启动：',shortcut)
+ except OSError as error:
+  print('应用已安装，但桌面快捷方式创建失败：'+str(error),file=sys.stderr)
+  print('请打开：',app)
 if __name__=='__main__':
  try:main()
  except Exception as error:print('安装未完成：'+str(error),file=sys.stderr);sys.exit(1)

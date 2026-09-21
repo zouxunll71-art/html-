@@ -8,7 +8,9 @@
 2. 安装完整 **Xcode 26 或更新版本**，打开一次完成初始化，在 Xcode 设置中安装 iOS 26 或更新的 Simulator 运行时。
 3. 安装 **Node.js 22 或更新版本**，安装 Codex 桌面应用并登录你自己的账号。
 4. 在解压目录运行 `python3 scripts/install.py --check` 检查环境，再运行 `python3 scripts/install.py`。也可双击 `Install.command`。
-5. 安装完成后打开 `~/Applications/HTML Native Studio.app`。首次编译需要几分钟，依电脑性能而定。
+5. 安装完成后，双击桌面的 **HTML Native Studio** 图标启动。安装器会自动创建指向 `~/Applications/HTML Native Studio.app` 的快捷方式，使用应用自身图标。首次编译需要几分钟，依电脑性能而定。
+
+桌面只放快捷方式，源码与运行文件保存在用户资源库中；删除桌面快捷方式不会删除应用或项目。若桌面已有其他同名文件，安装器会保留它并为新快捷方式加编号。桌面访问受限时，可直接从 `~/Applications/HTML Native Studio.app` 启动。
 
 目前仅支持 macOS；没有提供 Windows/Linux 安装包。此版本在本机编译并临时签名，尚未使用 Apple Developer ID 公证，不承诺下载后免依赖双击即用。
 
