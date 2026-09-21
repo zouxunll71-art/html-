@@ -92,3 +92,10 @@ body{position:fixed;inset:0;overflow:hidden;display:grid;grid-template-rows:48px
 .client-topbar>.preview-mode{flex-shrink:0;white-space:nowrap;gap:0}.preview-mode button{white-space:nowrap}.preview-mode button.selected{color:#243b53;background:white;box-shadow:0 1px 4px #22334418}
 
 .top-ios-tools{flex-shrink:0;white-space:nowrap;gap:2px!important}.top-ios-tools .subtle{font-size:12px;padding:6px}.client-topbar>.topbar-center{flex:1;overflow-x:auto;overflow-y:hidden;min-width:90px;white-space:nowrap}.topbar-center>*{flex-shrink:0}
+/* Keep toolbar geometry stable while fading the horizontal scroll thumb. */
+.client-topbar,.client-topbar>.topbar-center{scrollbar-width:thin;scrollbar-color:transparent transparent}
+.client-topbar::-webkit-scrollbar,.topbar-center::-webkit-scrollbar{height:5px}
+.client-topbar::-webkit-scrollbar-track,.topbar-center::-webkit-scrollbar-track{background:transparent}
+.client-topbar::-webkit-scrollbar-thumb,.topbar-center::-webkit-scrollbar-thumb{background:transparent;border-radius:8px}
+.client-topbar.scrolling,.client-topbar>.topbar-center.scrolling{scrollbar-color:#aab3bc transparent}
+.client-topbar.scrolling::-webkit-scrollbar-thumb,.topbar-center.scrolling::-webkit-scrollbar-thumb{background:#aab3bc}

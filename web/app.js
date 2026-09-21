@@ -638,3 +638,8 @@ function topIOSAction(action){if(!project()||project().nativePreview===false){to
 $('top-run-ios').onclick=()=>topIOSAction('run');$('top-link-ios').onclick=()=>topIOSAction('link');
 $('top-sync-menu').onclick=()=>showSidebarMenu($('top-sync-menu'),[{label:'检查并修复同步',icon:'refresh-cw',run:()=>topIOSAction('repair')},{label:'查看同步详情',icon:'info',run:()=>topIOSAction('details')}]);
 window.receiveSyncStatus=text=>{$('top-sync-menu').textContent=(text||'同步状态')+' ▾';$('top-sync-menu').title=(text||'同步状态')+' · 点击检查并修复同步';};
+
+for(const scroller of document.querySelectorAll('.client-topbar,.topbar-center')){
+ let hideScrollTimer;
+ scroller.addEventListener('scroll',()=>{scroller.classList.add('scrolling');clearTimeout(hideScrollTimer);hideScrollTimer=setTimeout(()=>scroller.classList.remove('scrolling'),800)},{passive:true});
+}
