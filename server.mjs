@@ -92,7 +92,7 @@ async function ensureStudio() {
     if (error.message === '工作台目录不匹配') throw error;
     if (!bootingStudio) bootingStudio = (async () => {
       const log = fs.openSync(path.join(DATA, 'studio-start.log'), 'a');
-      const child = spawn('/usr/bin/python3', [path.join(ROOT, 'scripts/launch.py')], { stdio: ['ignore', log, log], detached: true }); child.unref(); fs.closeSync(log);
+      const child = spawn('/usr/bin/python3', [path.join(ROOT, 'scripts/launch.py'), '--headless'], { stdio: ['ignore', log, log], detached: true }); child.unref(); fs.closeSync(log);
       for (let i = 0; i < 180; i++) { await new Promise(r => setTimeout(r, 1000)); try { if ((await studio('/health')).root === ROOT) return; } catch {} }
       throw new Error('工作台启动超时，请查看工作台启动日志。');
     })().finally(() => { bootingStudio = null; });

@@ -27,6 +27,8 @@
 
 可选环境变量：`CODEX_BINARY` 指定 Codex 可执行文件，`DEVELOPER_DIR` 指定 Xcode Developer 目录，`STUDIO_ROOT` 指定已配置的引擎目录，`STUDIO_APP_DEST` 指定构建的应用输出路径。
 
+请通过桌面的 HTML Native Studio 图标启动新版；不要运行 engine/scripts/launch.py 或旧分享版的启动脚本。新版客户端只在后台启动预览引擎，不自动打开旧版编辑器窗口。
+
 升级安装前请退出工作台及其后台服务。安装器保留本机配置、项目和账号数据；不会自动结束正在执行的任务。服务只监听本机，使用 18775 和 18777 端口；占用时需要先关闭冲突版本。
 
 ## 开发与校验

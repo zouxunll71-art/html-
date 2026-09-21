@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Install a clean checkout using only this Mac's paths and credentials."""
-import argparse,os,sys,shutil,subprocess,importlib.util,json
+import argparse,os,sys,shutil,subprocess,importlib.util,json,plistlib
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 def desktop_shortcut(app,home=None):
@@ -9,7 +9,17 @@ def desktop_shortcut(app,home=None):
  link=desktop/'HTML Native Studio.app';number=1
  # Preserve any existing desktop file or shortcut to a different installation.
  while os.path.lexists(link):
-  if link.is_symlink() and link.resolve()==app.resolve():return link
+  if link.is_symlink():
+   if link.resolve()==app.resolve():return link
+   try:
+    info=plistlib.loads((link.resolve()/'Contents/Info.plist').read_bytes())
+   except (OSError,ValueError):info={}
+   if info.get('CFBundleIdentifier')=='local.htmlnative.codex-workbench':
+    # Update only a known client shortcut, never delete the old application.
+    temporary=desktop/('.html-native-shortcut-'+str(os.getpid()))
+    temporary.symlink_to(app,target_is_directory=True)
+    os.replace(temporary,link)
+    return link
   number+=1;link=desktop/f'HTML Native Studio ({number}).app'
  link.symlink_to(app,target_is_directory=True)
  return link

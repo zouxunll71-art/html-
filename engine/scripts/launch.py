@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Desktop launch with source-aware rebuilds and versioned local service recovery."""
-import subprocess,os,json,time,urllib.request,fcntl,signal
+import subprocess,os,json,time,urllib.request,fcntl,signal,sys
 from pathlib import Path
 from source_stamp import fingerprint
 ROOT=Path(__file__).resolve().parents[1];os.chdir(ROOT)
@@ -80,5 +80,8 @@ control=Path.home()/'Library/Application Support/HTMLNativeStudio-CodexControl'
 preferences=ROOT/'artifacts/codex-window-preferences.json'
 quiet=json.loads(preferences.read_text()).get('defaultHidden',True) if preferences.exists() else False
 print('正在后台准备工作台…' if quiet else '正在打开 HTML 原生工作台…',flush=True)
-run(['open','-gj',studio] if quiet else ['open',studio])
+if '--headless' not in sys.argv:
+ run(['open','-gj',studio] if quiet else ['open',studio])
+else:
+ print('后台服务与模拟器已就绪，由新版客户端显示工作台。',flush=True)
 
