@@ -1,0 +1,5 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {submitToThread} from '../submit-turn.mjs';
+test('active writer queues once without starting a second turn',async()=>{let queued=0;const r=await submitToThread({resume:async()=>{throw Error('thread x already has an active writer')},start:()=>assert.fail('must not start'),queue:async()=>{queued++;return {queuedSubmission:{id:'q'}}}});assert.equal(r.queued,true);assert.equal(queued,1)});
+test('normal send starts once',async()=>{let started=0;await submitToThread({resume:async()=>{},start:async()=>{started++;return {turn:{id:'t'}}},queue:()=>assert.fail('must not queue')});assert.equal(started,1)});
+test('ambiguous start failure never queues a duplicate',async()=>{await assert.rejects(submitToThread({resume:async()=>{},start:async()=>{throw Error('timeout')},queue:()=>assert.fail('must not queue')}),/timeout/)});
+test('unrelated resume error remains an error',async()=>{await assert.rejects(submitToThread({resume:async()=>{throw Error('invalid cwd')},start:()=>assert.fail(),queue:()=>assert.fail()}),/invalid cwd/)});

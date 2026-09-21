@@ -306,7 +306,11 @@ $('composer').onsubmit = attempt(async event => {
   state.pendingSend = true; updateRunning();
   try {
     if (!state.thread) await newThread();
-    await api('/api/turn/start', { threadId: state.thread, text: value, model: $('model').value, effort: $('effort').value, serviceTier:speedTier, attachments: state.attachments.map(a => a.id), skills: state.selectedSkills.map(s=>s.path) });
+    const submissionKey=JSON.stringify([state.thread,value,state.attachments.map(a=>a.id),state.selectedSkills.map(s=>s.path)]);
+    if(state.submissionKey!==submissionKey){state.submissionKey=submissionKey;state.clientUserMessageId=crypto.randomUUID()}
+    const delivery=await api('/api/turn/start', { clientUserMessageId:state.clientUserMessageId,threadId: state.thread, text: value, model: $('model').value, effort: $('effort').value, serviceTier:speedTier, attachments: state.attachments.map(a => a.id), skills: state.selectedSkills.map(s=>s.path) });
+    state.submissionKey=null;state.clientUserMessageId=null;
+    if(delivery.queued)toast('已交给 Codex 原对话，沿用原对话的模型与权限；请保持 Codex 打开');
     $('prompt').value = ''; $('prompt').style.height = ''; state.selectedSkills=[];renderSelectedSkills(); state.attachments.forEach(a => URL.revokeObjectURL(a.preview)); state.attachments = []; renderAttachments(); await refreshRegistry();
   } finally { state.pendingSend = false; updateRunning(); }
 });

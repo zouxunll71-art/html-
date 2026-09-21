@@ -19,7 +19,7 @@ shutil.copy2(root/'native/StudioIcon.icns',contents/'Resources/StudioIcon.icns')
 (contents/'Info.plist').write_bytes(plistlib.dumps(plist))
 runtime=contents/'Resources/Client'
 runtime.mkdir(parents=True,exist_ok=True)
-for filename in ('server.mjs','rpc.mjs','usage.mjs','speed.mjs','sidebar-sync.mjs','capabilities.mjs','conversation-media.mjs','preview-scaffold.mjs','project-removal.mjs','project-paths.mjs','runtime-paths.mjs','package.json'):
+for filename in ('submit-turn.mjs','server.mjs','rpc.mjs','usage.mjs','speed.mjs','sidebar-sync.mjs','capabilities.mjs','conversation-media.mjs','preview-scaffold.mjs','project-removal.mjs','project-paths.mjs','runtime-paths.mjs','package.json'):
     shutil.copy2(root/filename,runtime/filename)
 for folder in ('web','node_modules'):
     shutil.copytree(root/folder,runtime/folder,dirs_exist_ok=True)
