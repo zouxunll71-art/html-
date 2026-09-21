@@ -27,6 +27,8 @@ final class ClientHostController:UIViewController,WKScriptMessageHandler,WKNavig
  var embedded=false
  var currentProject:String?
  var projectLoading=false
+ var mirrorTimer:Timer?
+ var mirrorBusy=false
  override var keyCommands:[UIKeyCommand]?{let paste=UIKeyCommand(title:"粘贴",action:#selector(pasteClipboardShortcut),input:"v",modifierFlags:.command);paste.wantsPriorityOverSystemBehavior=true;return [paste]}
  @objc func pasteClipboardShortcut(){web.evaluateJavaScript("document.activeElement?.id === 'prompt'"){[weak self] value,_ in
   guard let self=self else{return};guard value as? Bool == true else{self.web.paste(nil);return}
@@ -48,6 +50,47 @@ final class ClientHostController:UIViewController,WKScriptMessageHandler,WKNavig
    do{try data.write(to:file);let json=String(data:try JSONSerialization.data(withJSONObject:[file.path]),encoding:.utf8)!;self.web.evaluateJavaScript("window.receiveComposerFiles?.(\(json))",completionHandler:nil);return true}catch{return false}
   }
   web.load(URLRequest(url:URL(string:"http://127.0.0.1:18777/?native=1")!))
+  mirrorTimer=Timer.scheduledTimer(withTimeInterval:1.2,repeats:true){[weak self]_ in self?.pollMirror()}
+ }
+ func applyMirrorCommand(_ command:[String:Any]){
+  let point=CGPoint(x:(command["x"] as? Double ?? 0)*view.bounds.width,y:(command["y"] as? Double ?? 0)*view.bounds.height),kind=command["kind"] as? String ?? ""
+  if kind=="text"{
+   let text=command["text"] as? String ?? ""
+   if let input=editor.activeResponder(in:view) as? UITextField{input.text=text;input.sendActions(for:.editingChanged);input.sendActions(for:.editingDidEnd);return}
+   if let input=editor.activeResponder(in:view) as? UITextView{input.text=text;return}
+   let encoded=String(data:try! JSONSerialization.data(withJSONObject:[text]),encoding:.utf8)!
+   web.evaluateJavaScript("(()=>{const e=document.activeElement;if(e&&(e.tagName==='INPUT'||e.tagName==='TEXTAREA')){e.value=\(encoded)[0];e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}))}})()",completionHandler:nil);return
+  }
+  guard let hit=view.hitTest(point,with:nil) else{return}
+  var ancestor:UIView?=hit
+  while let current=ancestor{
+   if let browser=current as? WKWebView{
+    let p=browser.convert(point,from:view),dy=command["dy"] as? Double ?? 0
+    browser.evaluateJavaScript("(()=>{let e=document.elementFromPoint(\(p.x),\(p.y));if(!e)return;if('\(kind)'==='scroll'){while(e&&e.scrollHeight<=e.clientHeight)e=e.parentElement;(e||document.scrollingElement).scrollBy(0,\(dy))}else{e.focus?.();e.click?.()}})()",completionHandler:nil);return
+   }
+   if kind=="scroll",let scroll=current as? UIScrollView{let dy=command["dy"] as? Double ?? 0;scroll.setContentOffset(CGPoint(x:scroll.contentOffset.x,y:max(0,min(scroll.contentSize.height-scroll.bounds.height,scroll.contentOffset.y+dy))),animated:false);return}
+   if kind=="click",let field=current as? UITextField{field.becomeFirstResponder();return}
+   if kind=="click",let button=current as? UIButton{button.sendActions(for:.touchUpInside);return}
+   if kind=="click",let segment=current as? UISegmentedControl{let p=segment.convert(point,from:view);segment.selectedSegmentIndex=min(segment.numberOfSegments-1,max(0,Int(p.x/segment.bounds.width*CGFloat(segment.numberOfSegments))));segment.sendActions(for:.valueChanged);return}
+   if let surface=current as? DeviceSurface,kind=="click"{let p=surface.logical(surface.convert(point,from:view));if surface.operate{if surface === editor.left && editor.simulatorInput.ready{surface.onPointer?("down",p);surface.onPointer?("up",p)}else{surface.onTap?(p)}}else{surface.selected=surface.hit(p)?.id;surface.onSelect?(surface.selected)};return}
+   ancestor=current.superview
+  }
+ }
+ func pollMirror(){
+  guard !mirrorBusy,view.window != nil else{return};mirrorBusy=true
+  var request=URLRequest(url:URL(string:"http://127.0.0.1:18777/api/mirror/demand")!);request.setValue(Bridge.shared.token,forHTTPHeaderField:"x-studio-token");request.timeoutInterval=3
+  URLSession.shared.dataTask(with:request){[weak self] data,_,_ in DispatchQueue.main.async{
+   guard let self=self else{return};guard let data=data,let response=try? JSONSerialization.jsonObject(with:data) as? [String:Any],response["active"] as? Bool==true else{self.mirrorBusy=false;return}
+   for command in response["commands"] as? [[String:Any]] ?? []{self.applyMirrorCommand(command)}
+   let config=WKSnapshotConfiguration();config.afterScreenUpdates=false
+   self.web.takeSnapshot(with:config){[weak self] overlay,_ in
+    guard let self=self else{return};let format=UIGraphicsImageRendererFormat();format.scale=1
+    let image=UIGraphicsImageRenderer(bounds:self.view.bounds,format:format).image{_ in self.view.drawHierarchy(in:self.view.bounds,afterScreenUpdates:false);overlay?.draw(in:self.web.frame)}
+    guard let jpeg=image.jpegData(compressionQuality:0.85) else{self.mirrorBusy=false;return}
+    var upload=URLRequest(url:URL(string:"http://127.0.0.1:18777/api/mirror/frame")!);upload.httpMethod="POST";upload.setValue(Bridge.shared.token,forHTTPHeaderField:"x-studio-token");upload.httpBody=jpeg;upload.timeoutInterval=3
+    URLSession.shared.dataTask(with:upload){[weak self] _,_,_ in DispatchQueue.main.async{self?.mirrorBusy=false}}.resume()
+   }
+  }}.resume()
  }
  override func viewDidLayoutSubviews(){super.viewDidLayoutSubviews();let frame=view.safeAreaLayoutGuide.layoutFrame;guard web.frame != frame else{return};web.frame=frame;web.evaluateJavaScript("window.reportNativeLayout?.(true)",completionHandler:nil)}
  func embed(){

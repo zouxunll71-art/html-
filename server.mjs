@@ -207,18 +207,27 @@ async function windowAction(action) {
   else if (action === 'show-simulator') await exec('/usr/bin/open', ['-a', sim, '--args', '-CurrentDeviceUDID', c.ios]);
   else throw new Error('未知窗口操作');
 }
+let mirrorFrame=null,mirrorUpdated=0,mirrorViewed=0,mirrorCommands=[];
 async function handle(req, res) {
   if (req.headers.host !== `127.0.0.1:${PORT}` || (req.headers.origin && req.headers.origin !== ORIGIN) || req.headers['sec-fetch-site'] === 'cross-site') return json(res, { error: '请求来源不匹配' }, 403);
   const url = new URL(req.url, ORIGIN);
   if (req.method === 'GET' && url.pathname === '/health') return json(res, { app: 'html-native-codex-client', version: '1.0.0', ready: rpc.ready && studioReady });
-  if (req.method === 'GET' && url.pathname === '/') {
+  if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/mirror')) {
     res.setHeader('Set-Cookie', `studio_client=${CSRF}; HttpOnly; SameSite=Strict; Path=/`);
     res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'");
-    return text(res, fs.readFileSync(path.join(HERE, 'web/index.html'), 'utf8').replace('__CSRF__', CSRF), 'text/html; charset=utf-8');
+    return text(res, fs.readFileSync(path.join(HERE, url.pathname==='/mirror'?'web/mirror.html':'web/index.html'), 'utf8').replace('__CSRF__', CSRF), 'text/html; charset=utf-8');
+  }
+  if(url.pathname.startsWith('/api/mirror/')&&req.headers['x-studio-token']===token()){
+    if(req.method==='GET'&&url.pathname==='/api/mirror/demand')return json(res,{active:Date.now()-mirrorViewed<5000,commands:mirrorCommands.splice(0)});
+    if(req.method==='POST'&&url.pathname==='/api/mirror/frame'){
+      let size=0,chunks=[];for await(const chunk of req){size+=chunk.length;if(size>8*1024*1024)return json(res,{error:'Frame too large'},413);chunks.push(chunk)}
+      mirrorFrame=Buffer.concat(chunks);mirrorUpdated=Date.now();return json(res,{ok:true});
+    }
   }
   const nativeFrames = req.method==='GET' && url.pathname==='/api/ios-stream' && req.headers['x-studio-token']===token();
   const authenticated = nativeFrames || req.headers.cookie?.split(';').some(v => v.trim() === `studio_client=${CSRF}`) || req.headers['x-client-token'] === CSRF;
   if (!authenticated) return json(res, { error: '请从工作台首页打开' }, 403);
+  if(req.method==='GET'&&url.pathname==='/api/mirror/frame'){mirrorViewed=Date.now();res.setHeader('X-Mirror-Updated',String(mirrorUpdated));return mirrorFrame?text(res,mirrorFrame,'image/jpeg'):json(res,{waiting:true},202);}
   if(req.method==='GET'&&/^\/api\/attachment\/[a-f0-9-]{36}\.ref$/.test(url.pathname)){
     const id=url.pathname.split('/').pop(),meta=JSON.parse(fs.readFileSync(path.join(DATA,'uploads',id+'.json'),'utf8'));
     if(meta.kind!=='image')throw new Error('此附件不是图片');return text(res,fs.readFileSync(meta.path),meta.mime);
@@ -288,6 +297,7 @@ async function handle(req, res) {
     const body = await readBody(req);
     if(url.pathname.startsWith('/api/thread/')||url.pathname.startsWith('/api/turn/'))await sidebar();
     switch (url.pathname) {
+      case '/api/mirror/input': {if(!['click','scroll','text','key'].includes(body.kind)||mirrorCommands.length>=20||Date.now()-mirrorUpdated>8000)throw new Error('镜像尚未连接，请等待画面更新');mirrorCommands.push({kind:body.kind,x:Math.min(1,Math.max(0,Number(body.x)||0)),y:Math.min(1,Math.max(0,Number(body.y)||0)),text:String(body.text||'').slice(0,20000),dy:Math.max(-1000,Math.min(1000,Number(body.dy)||0))});mirrorViewed=Date.now();return json(res,{ok:true});}
       case '/api/skill/toggle': {
         const p=body.projectId?await project(body.projectId):null,catalog=await capabilities.read(p?.sourcePath||HERE,true);
         if(typeof body.enabled!=='boolean'||!catalog.skills.some(s=>s.path===body.path))throw new Error('技能不存在');
