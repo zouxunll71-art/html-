@@ -78,3 +78,13 @@ body.viewing-image .client-topbar{visibility:hidden;pointer-events:none}
 .turn-process>summary{min-height:34px;width:100%;user-select:none;-webkit-user-select:none}.turn-process>summary:after{pointer-events:none}
 
 .project-folder-drop{width:100%;min-height:136px;border:1px dashed #c4cfda;border-radius:12px;background:#fafbfd;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:#506478;cursor:pointer}.project-folder-drop:hover,.project-folder-drop.drag-over{border-color:#3478e5;background:#eef5ff}.project-folder-drop span{font-size:13px;color:#82909e}.project-folder-selected{font-size:12px;overflow-wrap:anywhere;color:#66788a}#dialog-content details summary{font-size:12px;color:#8592a0;cursor:pointer}
+
+/* Keep application chrome inside the viewport; only content panes may scroll. */
+html{height:100%;overflow:hidden}
+body{position:fixed;inset:0;overflow:hidden;display:grid;grid-template-rows:48px minmax(0,1fr);min-width:0;min-height:0}
+.client-topbar{min-height:48px;max-height:48px;min-width:0;overflow-x:auto;overflow-y:hidden;flex-shrink:0}
+.app{height:100%;min-height:0;min-width:0;grid-template-rows:minmax(0,1fr)}
+.workspace,.sidebar,.chat-panel{min-height:0}
+.composer-wrap{position:relative;flex:0 0 auto;min-width:0;max-height:55vh;overflow-y:auto;background:#fff}
+.composer-tools{flex-wrap:wrap}.composer-right{margin-left:auto}
+.native-host .canvas-layout{overflow:hidden}

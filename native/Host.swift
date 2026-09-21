@@ -22,17 +22,18 @@ final class ClientHostController:UIViewController,WKScriptMessageHandler,WKNavig
  override func viewDidLoad(){
   super.viewDidLoad();view.backgroundColor = .white
   let config=WKWebViewConfiguration();config.userContentController.add(self,name:"native")
-  web=ClientWebView(frame:.zero,configuration:config);web.navigationDelegate=self;web.uiDelegate=self;web.isOpaque=false;web.backgroundColor = .clear;web.scrollView.backgroundColor = .clear;web.scrollView.isScrollEnabled=false;web.scrollView.contentInsetAdjustmentBehavior = .never
+  web=ClientWebView(frame:.zero,configuration:config);web.navigationDelegate=self;web.uiDelegate=self;web.isOpaque=false;web.backgroundColor = .clear;web.scrollView.backgroundColor = .clear;web.scrollView.isScrollEnabled=false;web.scrollView.bounces=false;web.clipsToBounds=true;web.scrollView.contentInsetAdjustmentBehavior = .never
   view.addSubview(leftPanel);view.addSubview(rightPanel);view.addSubview(web)
   folderDrop.isHidden=true;folderDrop.backgroundColor = .clear;folderDrop.isAccessibilityElement=true;folderDrop.accessibilityLabel="选择项目文件夹，也可拖入文件夹";folderDrop.accessibilityTraits = .button;view.addSubview(folderDrop)
   folderDrop.addInteraction(UIDropInteraction(delegate:self));folderDrop.addGestureRecognizer(UITapGestureRecognizer(target:self,action:#selector(pickFolder)))
+  leftPanel.clipsToBounds=true;rightPanel.clipsToBounds=true
   leftPanel.backgroundColor=UIColor(studioHex:"#F8FAFC");rightPanel.backgroundColor = .white
   web.load(URLRequest(url:URL(string:"http://127.0.0.1:18777/?native=1")!))
  }
- override func viewDidLayoutSubviews(){super.viewDidLayoutSubviews();let frame=view.safeAreaLayoutGuide.layoutFrame;guard web.frame != frame else{return};web.frame=frame;web.evaluateJavaScript("window.reportNativeLayout?.()",completionHandler:nil)}
+ override func viewDidLayoutSubviews(){super.viewDidLayoutSubviews();let frame=view.safeAreaLayoutGuide.layoutFrame;guard web.frame != frame else{return};web.frame=frame;web.evaluateJavaScript("window.reportNativeLayout?.(true)",completionHandler:nil)}
  func embed(){
   guard !embedded else{return};embedded=true;editor.clientEmbedded=true
-  addChild(editor);view.insertSubview(editor.view,belowSubview:web);editor.didMove(toParent:self)
+  addChild(editor);editor.view.clipsToBounds=true;view.insertSubview(editor.view,belowSubview:web);editor.didMove(toParent:self)
   editor.clientLeftContainer=leftPanel;editor.clientRightContainer=rightPanel
   leftPanel.addSubview(editor.sidebar)
   leftPanel.addSubview(editor.clientToolsScroll)
@@ -83,6 +84,7 @@ final class ClientHostController:UIViewController,WKScriptMessageHandler,WKNavig
    web.modal=body["modal"] as? Bool ?? false;web.passthrough=preview ? [web.convert(center,from:view)]:[]
    if !leftPanel.isHidden{web.passthrough.append(web.convert(left,from:view))};if !rightPanel.isHidden{web.passthrough.append(web.convert(right,from:view))}
    if resized{editor.view.setNeedsLayout();editor.view.layoutIfNeeded()}
+   view.bringSubviewToFront(web);view.bringSubviewToFront(folderDrop)
   case "project":
    guard let id=body["id"] as? String,currentProject != id,!projectLoading else{return};projectLoading=true
    Bridge.shared.request("/projects"){[weak self] result in guard let self=self else{return};self.projectLoading=false;if case .success(let data)=result,let projects=try? JSONDecoder().decode([StudioProject].self,from:data),let p=projects.first(where:{$0.id==id}){self.currentProject=id;self.editor.useProject(p)}}
@@ -126,7 +128,7 @@ final class ClientHostController:UIViewController,WKScriptMessageHandler,WKNavig
    DispatchQueue.main.async{self?.deliverFolder(url,request:request,error:url==nil ? "无法读取文件夹，请点击选择文件夹。":nil)}
   }
  }
- func webView(_ webView:WKWebView,didFinish navigation:WKNavigation!){web.evaluateJavaScript("window.reportNativeLayout?.()",completionHandler:nil)}
+ func webView(_ webView:WKWebView,didFinish navigation:WKNavigation!){view.setNeedsLayout();view.layoutIfNeeded();web.evaluateJavaScript("window.reportNativeLayout?.(true)",completionHandler:nil)}
  func webView(_ webView:WKWebView,decidePolicyFor action:WKNavigationAction,decisionHandler:@escaping(WKNavigationActionPolicy)->Void){
   guard let url=action.request.url else{decisionHandler(.cancel);return}
   if url.host=="127.0.0.1" && url.port==18777 || url.scheme=="about" || url.scheme=="blob" {decisionHandler(.allow);return}

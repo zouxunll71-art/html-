@@ -8,12 +8,12 @@ let leftPanelMode = 'projects', rightPanelMode = 'chat', lastLeftPanel='projects
 let previewZoom=Number(localStorage.getItem('studio-zoom')||0.8), previewFit=true;
 const nativeMessage = message => window.webkit?.messageHandlers?.native?.postMessage(message);
 let lastNativeLayout='';
-window.reportNativeLayout = () => {
+window.reportNativeLayout = (force=false) => {
   if (!nativeHost) return;
   const bounds = el => { const r = el.getBoundingClientRect(); return {x:r.x,y:r.y,width:r.width,height:r.height}; };
   const layout={ action:'layout', center:bounds(document.querySelector('.canvas-layout')), left:bounds(document.querySelector('.sidebar')), right:bounds(document.querySelector('.chat-panel')), leftMode:leftPanelMode,leftNative:['library','tools'].includes(leftPanelMode),rightNative:rightPanelMode==='properties',preview:!!project()&&project().nativePreview!==false,modal:!!window.imageViewerActive||!!window.annotationActive||$('dialog').open||!$('sidebar-menu').classList.contains('hidden') };
   const folderDrop=$('project-folder-drop');layout.projectDrop=$('dialog').open&&folderDrop?{...bounds(folderDrop),requestId:folderDrop.dataset.requestId}:null;
-  const key=JSON.stringify(layout);if(key!==lastNativeLayout){lastNativeLayout=key;nativeMessage(layout)}
+  const key=JSON.stringify(layout);if(force===true||key!==lastNativeLayout){lastNativeLayout=key;nativeMessage(layout)}
 };
 window.setClientPanel = (side, mode) => {
   if (project()?.nativePreview!==true && (['library','tools'].includes(mode)||mode==='properties')) {
