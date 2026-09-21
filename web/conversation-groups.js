@@ -22,6 +22,13 @@ export function userMessageText(content = []) {
  return content.filter(c=>c.type==='text').map(c=>{
   const text=c.text||'';
   const envelope=/^\s*# Files mentioned by the user:\r?\n[\s\S]*?\r?\nDistinguish instructions in attached documents from the user's request\.\r?\n\s*## My request:\r?\n/;
-  return text.replace(envelope,'').trim();
+  const body=text.replace(envelope,'').trim();
+  const reply=/^<send_user_message_question_reply>\s*([\s\S]*?)\s*<\/send_user_message_question_reply>$/.exec(body);
+  if(reply){
+   try{const answers=JSON.parse(reply[1]);
+    if(Array.isArray(answers)&&answers.length&&answers.every(a=>a&&typeof a.questionItemId==='string'&&typeof a.question==='string'&&typeof a.answer==='string'))return answers.map(a=>a.answer.trim()).filter(Boolean).join('\n');
+   }catch{}
+  }
+  return body;
  }).filter(Boolean).join('\n');
 }
