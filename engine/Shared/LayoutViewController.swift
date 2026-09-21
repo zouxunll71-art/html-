@@ -6,6 +6,7 @@ final class LayoutViewController: UIViewController {
  var page=StudioPage(name:"空白页",route:"blank") {didSet { if isViewLoaded {rebuild()} }}
  var assetProvider:((String)->UIImage?)?;var fonts:[URL]=[] {didSet {registerFonts()}}
  var onAction:((String)->Void)?;var elements:[String:UIView]=[:]
+ var originalText:[String:NSAttributedString]=[:]
  var previous:[String:StudioNode]=[:];var previousOrder:[String]=[];var editingCanvas=false;var lifecycle:[String]=[]
  override func viewDidLoad(){super.viewDidLoad();lifecycle.append("viewDidLoad");registerFonts();rebuild()}
  override func viewWillAppear(_ animated:Bool){super.viewWillAppear(animated);lifecycle.append("viewWillAppear")}
@@ -25,7 +26,7 @@ final class LayoutViewController: UIViewController {
  func rebuild(){
   view.backgroundColor=UIColor(studioHex:page.background)
   let visible=page.nodes.filter{ !$0.hidden };let ids=visible.map{$0.id};let wanted=Set(ids)
-  for id in Array(elements.keys) where !wanted.contains(id){elements.removeValue(forKey:id)?.removeFromSuperview();previous.removeValue(forKey:id)}
+  for id in Array(elements.keys) where !wanted.contains(id){elements.removeValue(forKey:id)?.removeFromSuperview();previous.removeValue(forKey:id);originalText.removeValue(forKey:id)}
   for n in visible {
    let old=previous[n.id]
    let sameKind=old?.type==n.type && (old?.fit=="nineSlice" && (old?.capPixels ?? 0)>0)==(n.fit=="nineSlice" && n.capPixels>0)
@@ -54,10 +55,10 @@ final class LayoutViewController: UIViewController {
       if span.underline==true{text.addAttribute(.underlineStyle,value:NSUnderlineStyle.single.rawValue,range:range)}
      }
      let paragraph=NSMutableParagraphStyle();paragraph.alignment=label.textAlignment;paragraph.lineBreakMode = .byWordWrapping
-     if let height=n.lineHeight,height>0{paragraph.minimumLineHeight=height;paragraph.maximumLineHeight=height}
+     if let height=n.lineHeight,height>0{paragraph.minimumLineHeight=max(height,font(n).lineHeight)}
      text.addAttribute(.paragraphStyle,value:paragraph,range:NSRange(location:0,length:text.length))
      if let spacing=n.letterSpacing{text.addAttribute(.kern,value:spacing,range:NSRange(location:0,length:text.length))}
-     label.attributedText=text
+     originalText[n.id]=text;label.attributedText=text
     }
     if let image=v as? UIImageView{if old?.asset != n.asset{image.image=assetProvider?(n.asset)};image.contentMode=n.fit=="fill" ? .scaleAspectFill : n.fit=="stretch" ? .scaleToFill : .scaleAspectFit}
     if let panel=v as? NineSliceView{panel.image=assetProvider?(n.asset);panel.sourceCap=n.capPixels;panel.destinationCap=n.capPoints;panel.setNeedsDisplay()}
@@ -75,7 +76,14 @@ final class LayoutViewController: UIViewController {
   for n in page.nodes {guard let v=elements[n.id] else{continue};v.transform = .identity
    let y=n.y*s+(n.anchor=="bottomLeft" ? dy : n.anchor=="center" ? dy/2 : 0)
    v.frame=CGRect(x:n.x*s,y:y,width:n.width*s,height:n.height*s);v.transform=CGAffineTransform(rotationAngle:n.rotation * .pi/180)
-   if let label=v as? UILabel {label.font=font(n).withSize(n.fontSize*s)}
+   if let label=v as? UILabel,let original=originalText[n.id] {
+    let scaled=NSMutableAttributedString(attributedString:original)
+    original.enumerateAttributes(in:NSRange(location:0,length:original.length)){attributes,range,_ in
+     if let f=attributes[.font] as? UIFont{scaled.addAttribute(.font,value:f.withSize(f.pointSize*s),range:range)}
+     if let kern=attributes[.kern] as? CGFloat{scaled.addAttribute(.kern,value:kern*s,range:range)}
+     if let p=attributes[.paragraphStyle] as? NSParagraphStyle,let copy=p.mutableCopy() as? NSMutableParagraphStyle{copy.minimumLineHeight *= s;copy.maximumLineHeight *= s;scaled.addAttribute(.paragraphStyle,value:copy,range:range)}
+    };label.attributedText=scaled
+   }
   }
  }
 }

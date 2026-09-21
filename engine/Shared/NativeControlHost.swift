@@ -32,7 +32,7 @@ final class NativeControlHost:UIView {
   if let c=control as? UISlider{c.value=Float(n.value)}
   if let c=control as? UIProgressView{c.progress=Float(n.value);c.progressTintColor=UIColor(studioHex:n.color)}
   if let c=control as? UIStepper{c.minimumValue=0;c.maximumValue=100;c.value=Double(n.value)}
-  if let c=control as? UISegmentedControl{c.removeAllSegments();for(i,title)in n.options.enumerated(){c.insertSegment(withTitle:title,at:i,animated:false)};c.selectedSegmentIndex=min(max(0,Int(n.value)),n.options.count-1);c.selectedSegmentTintColor=UIColor(studioHex:n.color).withAlphaComponent(0.2)}
+  if let c=control as? UISegmentedControl{c.setTitleTextAttributes([.font:UIFont.systemFont(ofSize:n.fontSize)],for:.normal);c.setTitleTextAttributes([.font:UIFont.systemFont(ofSize:n.fontSize)],for:.selected);c.removeAllSegments();for(i,title)in n.options.enumerated(){c.insertSegment(withTitle:title,at:i,animated:false)};c.selectedSegmentIndex=min(max(0,Int(n.value)),n.options.count-1);c.selectedSegmentTintColor=UIColor(studioHex:n.color).withAlphaComponent(0.2)}
   if let c=control as? UIActivityIndicatorView{c.color=UIColor(studioHex:n.color);n.isOn ? c.startAnimating() : c.stopAnimating();c.hidesWhenStopped=false}
  }
  @objc func changed(_ sender:UIControl){if kind=="nativeCheckbox",let b=sender as? UIButton{b.isSelected.toggle()};onAction?()}

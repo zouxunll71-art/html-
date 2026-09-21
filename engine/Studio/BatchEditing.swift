@@ -12,6 +12,7 @@ extension StudioController {
   addField("统一宽度 · 每个图层","batch.width",common(\.width));addField("统一高度 · 每个图层","batch.height",common(\.height))
   fields["batch.width"]?.placeholder="多个值，输入后统一";fields["batch.height"]?.placeholder="多个值，输入后统一"
   add(menuButton("统一图标尺寸",["20 × 20","24 × 24","28 × 28","32 × 32"]){[weak self] value in guard let size=Double(value.components(separatedBy:" ")[0])else{return};self?.editBatch{n in let cx=n.x+n.width/2,cy=n.y+n.height/2;n.width=CGFloat(size);n.height=CGFloat(size);n.x=cx-n.width/2;n.y=cy-n.height/2}})
+  if nodes.contains(where:{$0.hasEditableText}){addField("统一文字字号","batch.fontSize",common(\.fontSize));add(button("所选文字适应内容",{[weak self]in self?.editBatch{$0.fitTextBounds()}}))}
   let sizeNote=label("调整尺寸时保留各自中心位置",11);sizeNote.textColor = .secondaryLabel;add(sizeNote)
   addField("整体位置 X","batch.x",format(batchBounds.minX));addField("整体位置 Y","batch.y",format(batchBounds.minY))
   addField("整体水平移动 ΔX","batch.dx","0");addField("整体垂直移动 ΔY","batch.dy","0")
@@ -30,6 +31,7 @@ extension StudioController {
   if (key=="batch.width" || key=="batch.height") && value<=0{setStatus("宽高必须大于零");return}
   let bounds=batchBounds
   editBatch{n in switch key {
+   case "batch.fontSize":if n.hasEditableText{n.resizeText(value)}
    case "batch.width":n.x+=(n.width-value)/2;n.width=value
    case "batch.height":n.y+=(n.height-value)/2;n.height=value
    case "batch.x":n.x+=value-bounds.minX

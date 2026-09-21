@@ -363,6 +363,11 @@ final class StudioController:UIViewController,UITableViewDataSource,UITableViewD
    let row=UIStackView();row.axis = .horizontal;row.spacing=8;row.distribution = .fillEqually;row.addArrangedSubview(fieldBox("横向位置","x",format(n.x)));row.addArrangedSubview(fieldBox("纵向位置","y",format(n.y)));add(row)
    let row2=UIStackView();row2.axis = .horizontal;row2.spacing=8;row2.distribution = .fillEqually;row2.addArrangedSubview(fieldBox("宽","width",format(n.width)));row2.addArrangedSubview(fieldBox("高","height",format(n.height)));add(row2)
    addField("旋转 °","rotation",format(n.rotation));addField("不透明度 0–1","opacity",format(n.opacity))
+   if n.hasEditableText {
+    let sizes=UIStackView();sizes.axis = .horizontal;sizes.spacing=8;sizes.distribution = .fillEqually
+    sizes.addArrangedSubview(button("字号 −",{[weak self]in self?.mutate{$0.resizeText(max(1,$0.fontSize-1))}}));sizes.addArrangedSubview(button("字号 +",{[weak self]in self?.mutate{$0.resizeText($0.fontSize+1)}}));add(sizes)
+    add(button("适应文字 · 修复裁切",{[weak self]in self?.mutate{$0.fitTextBounds()}}))
+   }
    if n.type.hasPrefix("native") {
     add(label("iOS 原生组件",13,.semibold));addField("文字 / 标题","text",n.text);addField("组件颜色","color",n.color);addField("文字字号","fontSize",format(n.fontSize))
     if ["nativeCheckbox","nativeSwitch","nativeSpinner"].contains(n.type){add(button(n.isOn ? "状态：已开启 / 已勾选" : "状态：关闭 / 未勾选",{[weak self]in self?.mutate{$0.isOn.toggle()}}))}
@@ -406,7 +411,7 @@ final class StudioController:UIViewController,UITableViewDataSource,UITableViewD
   if key=="selectionColor"{setSelectionColor(value);return}
   if key=="pageName" || key=="pageBackground"{checkpoint();if key=="pageName"{project?.pages[pageIndex].name=value}else{project?.pages[pageIndex].background=value};changed();return}
   let number=CGFloat(Double(value) ?? 0)
-  mutate{n in switch key{case "value":n.value=number;case "placeholder":n.placeholder=value;case "options":n.options=value.split(whereSeparator:{$0=="," || $0=="，"}).map(String.init);case "name":n.name=value;case "text":n.text=value;case "fontName":n.fontName=value;case "color":n.color=value;case "fill":n.fill=value;case "x":n.x=number;case "y":n.y=number;case "width":n.width=max(1,number);case "height":n.height=max(1,number);case "rotation":n.rotation=number;case "opacity":n.opacity=min(1,max(0,number));case "fontSize":n.fontSize=max(1,number);case "fontWeight":n.fontWeight=min(900,max(100,number));case "cornerRadius":n.cornerRadius=max(0,number);case "capPixels":n.capPixels=max(0,number);case "capPoints":n.capPoints=max(0,number);default:break}}
+  mutate{n in switch key{case "value":n.value=number;case "placeholder":n.placeholder=value;case "options":n.options=value.split(whereSeparator:{$0=="," || $0=="，"}).map(String.init);case "name":n.name=value;case "text":n.text=value;case "fontName":n.fontName=value;case "color":n.color=value;case "fill":n.fill=value;case "x":n.x=number;case "y":n.y=number;case "width":n.width=max(1,number);case "height":n.height=max(1,number);case "rotation":n.rotation=number;case "opacity":n.opacity=min(1,max(0,number));case "fontSize":n.resizeText(number);case "fontWeight":n.fontWeight=min(900,max(100,number));case "cornerRadius":n.cornerRadius=max(0,number);case "capPixels":n.capPixels=max(0,number);case "capPoints":n.capPoints=max(0,number);default:break}}
  }
  func friendlyOption(_ value:String)->String{["fit":"完整显示","fill":"填满并裁切","stretch":"拉伸铺满","left":"靠左","center":"居中","right":"靠右","topLeft":"左上角","bottomLeft":"左下角"][value] ?? value}
  func menuButton(_ title:String,_ options:[String],action:@escaping(String)->Void)->UIButton{let b=button(title,{});b.showsMenuAsPrimaryAction=true;b.menu=UIMenu(children:options.map{v in UIAction(title:friendlyOption(v)){_ in action(v)}});return b}

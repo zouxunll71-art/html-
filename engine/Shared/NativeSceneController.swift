@@ -73,7 +73,7 @@ final class NativeSceneController:UIViewController,UIScrollViewDelegate,UITextFi
    let fontScale=StudioWidthScale.factor(view.bounds.width>0 ? view.bounds.width:number(scene,"width",393),designWidth:number(scene,"width",393));var scaledNode=node;scaledNode.fontSize *= fontScale;let font=fonts.font(scaledNode),text=n["text"] as? String ?? ""
    if let label=item as? UILabel {
     let a=NSMutableAttributedString(string:text,attributes:[.font:font,.foregroundColor:color]);let paragraph=NSMutableParagraphStyle();paragraph.alignment=node.alignment=="center" ? .center : node.alignment=="right" ? .right : .left
-    if let h=node.lineHeight{paragraph.minimumLineHeight=h*fontScale;paragraph.maximumLineHeight=h*fontScale};a.addAttribute(.paragraphStyle,value:paragraph,range:NSRange(location:0,length:a.length))
+    if let h=node.lineHeight{paragraph.minimumLineHeight=max(h*fontScale,font.lineHeight)};a.addAttribute(.paragraphStyle,value:paragraph,range:NSRange(location:0,length:a.length))
     if let space=node.letterSpacing{a.addAttribute(.kern,value:space*fontScale,range:NSRange(location:0,length:a.length))}
     for span in node.textSpans ?? [] where span.start>=0 && span.end<=a.length && span.end>span.start{var style=node;style.fontSize=(span.fontSize ?? node.fontSize)*fontScale;style.fontWeight=span.fontWeight ?? node.fontWeight;style.italic=span.italic ?? node.italic;let r=NSRange(location:span.start,length:span.end-span.start);a.addAttribute(.font,value:fonts.font(style),range:r);if let c=span.color{a.addAttribute(.foregroundColor,value:UIColor(studioHex:c),range:r)};if span.underline==true{a.addAttribute(.underlineStyle,value:1,range:r)}}
     if label.attributedText != a{label.attributedText=a}
@@ -85,7 +85,7 @@ final class NativeSceneController:UIViewController,UIScrollViewDelegate,UITextFi
    if let c=item as? UISwitch{c.setOn(n["isOn"] as? Bool ?? false,animated:false)}
    if let c=item as? UISlider{c.minimumValue=Float(number(n,"minimum"));c.maximumValue=Float(number(n,"maximum",1));c.value=Float(number(n,"value"))}
    if let c=item as? UIProgressView{c.progress=Float(number(n,"value"))}
-   if let c=item as? UISegmentedControl{let options=n["options"] as? [String] ?? [];if c.numberOfSegments != options.count || options.enumerated().contains(where:{c.titleForSegment(at:$0.offset) != $0.element}){c.removeAllSegments();for(i,title)in options.enumerated(){c.insertSegment(withTitle:title,at:i,animated:false)}};c.selectedSegmentIndex=Int(number(n,"value"))}
+   if let c=item as? UISegmentedControl{c.setTitleTextAttributes([.font:font],for:.normal);c.setTitleTextAttributes([.font:font],for:.selected);let options=n["options"] as? [String] ?? [];if c.numberOfSegments != options.count || options.enumerated().contains(where:{c.titleForSegment(at:$0.offset) != $0.element}){c.removeAllSegments();for(i,title)in options.enumerated(){c.insertSegment(withTitle:title,at:i,animated:false)}};c.selectedSegmentIndex=Int(number(n,"value"))}
    if let c=item as? UIStepper{c.minimumValue=Double(number(n,"minimum"));c.maximumValue=Double(number(n,"maximum",100));c.stepValue=Double(number(n,"step",1));c.value=Double(number(n,"value"))}
    parent.bringSubviewToFront(item)
   }
