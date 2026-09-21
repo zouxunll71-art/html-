@@ -225,8 +225,13 @@ def export(r,progress=lambda stage,percent:None):
  errors=[i['message'] for i in audit['issues'] if i['level']=='error']
  if errors:raise ValueError('资源与页面检查未通过：\n'+'\n'.join(errors[:12]))
  name=''.join(c if c not in '/\\:' else '-' for c in r['model']['name']).strip('. ') or 'NativeApp'
- out=Path.home()/'Desktop'/(name+'-htmlios');i=2
- while out.exists():out=Path.home()/'Desktop'/f'{name}-{i}-htmlios';i+=1
+ source=Path(r['source']).resolve()
+ bundle=source.parent if source.name=='HTML' and source.parent.name=='HTMLNativeStudio' else source if source.name=='HTMLNativeStudio' else source/'HTMLNativeStudio'
+ (bundle/'iOS').mkdir(parents=True,exist_ok=True)
+ if source != bundle/'HTML' and not (bundle/'HTML').exists():
+  shutil.copytree(source,bundle/'HTML',ignore=shutil.ignore_patterns('HTMLNativeStudio','HTML','iOS','.git','node_modules','build','.DS_Store'))
+ out=bundle/'iOS'/name;i=2
+ while out.exists():out=bundle/'iOS'/f'{name}-{i}';i+=1
  staging=out.with_name('.'+out.name+'.partial-'+uuid.uuid4().hex)
  try:
   progress('生成原生工程和语言文件',30)

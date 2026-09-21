@@ -20,7 +20,7 @@ extension StudioController {
     }
     self.setStatus("正在"+(state["stage"] as? String ?? "导出工程")+"（\(state["progress"] as? Int ?? 0)%）")
     DispatchQueue.main.asyncAfter(deadline:.now()+0.7){[weak self] in self?.pollExport(job)}
-   }catch{self.finishExport(error.localizedDescription+"\n后台导出可能仍在继续，请检查桌面输出。")} 
+   }catch{self.finishExport(error.localizedDescription+"\n后台导出可能仍在继续，请检查项目 HTMLNativeStudio/iOS 目录。")} 
   }
  }
  func finishExport(_ message:String){exportJobID=nil;buttons[6].isEnabled=true;setStatus("导出未完成");showMessage("导出检查",message)}

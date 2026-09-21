@@ -10,7 +10,11 @@ export async function ensurePreviewSource(projectRoot,name,studioRoot){
  if(pending.has(root))return pending.get(root);
  const task=(async()=>{
   if(compatible(root))return root;
-  const dest=path.join(root,'HTMLNativeStudio');
+  const base=path.basename(root)==='HTMLNativeStudio'?root:path.join(root,'HTMLNativeStudio');
+  const dest=path.join(base,'HTML');
+  if(compatible(base))return base;
+  if(compatible(dest))return dest;
+  if(fs.existsSync(base)&&base!==root){throw new Error('HTMLNativeStudio 文件夹已存在且不是工作台项目，请先重命名该文件夹再接入；原文件未改动');}
   if(fs.existsSync(dest)||fs.lstatSync?.(dest,{throwIfNoEntry:false})){
    if(fs.lstatSync(dest).isSymbolicLink()||!compatible(dest))throw new Error('HTMLNativeStudio 文件夹已存在且不是工作台项目，请先重命名该文件夹再接入；原文件未改动');
    return dest;
@@ -37,7 +41,7 @@ compile_project(stage)
 `,studioRoot,stage,String(name||'New App')],{timeout:60000,maxBuffer:1024*1024});
    // Recheck after async generation; never replace user files.
    if(fs.existsSync(dest))throw new Error('工作台目录已被创建，请重新接入');
-   fs.renameSync(stage,dest);return dest;
+   if(base===root){fs.renameSync(stage,dest);fs.mkdirSync(path.join(base,'iOS'),{recursive:true});}else{const bundle=fs.mkdtempSync(path.join(root,'.html-native-bundle-'));try{fs.renameSync(stage,path.join(bundle,'HTML'));fs.mkdirSync(path.join(bundle,'iOS'));fs.renameSync(bundle,base)}finally{fs.rmSync(bundle,{recursive:true,force:true})}}return dest;
   }finally{fs.rmSync(stage,{recursive:true,force:true})}
  })();pending.set(root,task);
  try{return await task}finally{pending.delete(root)}

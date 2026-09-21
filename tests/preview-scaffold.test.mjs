@@ -10,7 +10,7 @@ test('empty iOS project gets isolated valid starter, retry preserves edits', {sk
  try{
   fs.mkdirSync(path.join(root,'Demo.xcodeproj'));fs.writeFileSync(path.join(root,'Demo.xcodeproj/project.pbxproj'),'ios sentinel');fs.writeFileSync(path.join(root,'AGENTS.md'),'user rules');
   const [a,b]=await Promise.all([ensurePreviewSource(root,'工作台联调示例',system),ensurePreviewSource(root,'工作台联调示例',system)]);
-  assert.equal(a,b);assert.equal(a,path.join(fs.realpathSync(root),'HTMLNativeStudio'));
+  assert.equal(a,b);assert.ok(fs.statSync(path.join(root,'HTMLNativeStudio/iOS')).isDirectory());assert.equal(a,path.join(fs.realpathSync(root),'HTMLNativeStudio','HTML'));
   assert.equal(JSON.parse(fs.readFileSync(path.join(a,'app.json'))).protocol,'html-native/1');
   assert.ok(fs.existsSync(path.join(a,'.studio/authoring/validate.py')));
   fs.writeFileSync(path.join(a,'README.md'),'local edits');await ensurePreviewSource(root,'ignored',system);

@@ -42,8 +42,9 @@ def install(root):
  return root
 
 def new_project(name=None):
- project_id='app-'+uuid.uuid4().hex[:12];dest=ROOT/'Projects'/project_id
+ project_id='app-'+uuid.uuid4().hex[:12];dest=ROOT/'Projects'/project_id/'HTMLNativeStudio'/'HTML'
  shutil.copytree(ROOT/'Protocol/Starter',dest)
+ (dest.parent/'iOS').mkdir(exist_ok=True)
  app=json.loads((dest/'app.json').read_text());app['id']=project_id
  if name:app['name']=str(name).strip()[:100] or app['name']
  words=re.findall(r'[A-Z]?[a-z]+|[A-Z]+(?=[A-Z][a-z]|$)',app['name'])

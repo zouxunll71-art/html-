@@ -21,7 +21,7 @@
 - 引擎、模板与客户端源码：`~/Library/Application Support/HTMLNativeStudio/`
 - 对话关联与图片附件：`~/Library/Application Support/HTMLNativeStudio-CodexClient/`
 - Codex：使用当前用户自己的安装、登录、项目、技能与记忆。不会分享开发者的账号、额度、对话或业务项目。
-- 接入空文件夹 / iOS 工程时，在所选项目内创建 `HTMLNativeStudio/`，包含模板、AGENTS.md、编写规范与校验工具。
+- 接入空文件夹 / iOS 工程时，在所选项目内创建 `HTMLNativeStudio/HTML/`，包含模板、AGENTS.md、编写规范与校验工具；同级 `HTMLNativeStudio/iOS/` 存放导出的原生工程。
 
 每台电脑的工作目录各自解析。“同步”是与这台电脑上的 Codex 同步，不是跨电脑复制别人的账号和项目。历史项目的源文件若不在本机，仍需先取得源码并添加正确路径。
 
@@ -42,7 +42,7 @@
 - 当前约每 1.2 秒请求刷新，不是高帧率视频。只有连接镜像时才采集画面，断开后约 5 秒停止采集；无人连接时不持续截图。镜像功能本身不调用 AI 模型。
 - 镜像只在本机提供，使用当前电脑的工作台与账号。不要将端口对外公开。桌面工作台关闭时可能显示最后画面，以同步状态为准；重启后页面会尝试重连，若提示认证失效则重新打开镜像地址。
 
-维护本工作台的 Codex 先阅读根目录 [AGENTS.md](AGENTS.md)。新接入项目里的 `HTMLNativeStudio/AGENTS.md` 也包含这一入口说明；已有项目不会被自动覆写规范。
+维护本工作台的 Codex 先阅读根目录 [AGENTS.md](AGENTS.md)。新接入项目里的 `HTMLNativeStudio/HTML/AGENTS.md` 也包含这一入口说明；已有项目不会被自动覆写规范。
 
 ## 开发与校验
 
@@ -57,3 +57,14 @@ python3 scripts/check_distribution.py
 `engine/` 包含原工作台源代码、模板和规范，`native/` 为客户端宿主与构建脚本，`web/` 为对话界面。Codex App Server 为实验接口，官方更新可能需要适配。本项目不是 OpenAI 官方客户端。
 
 GitHub 私有仓库只有受邀用户可以下载；公开仓库可供所有人下载。第三方组件说明见 [THIRD_PARTY_NOTICES.md](engine/THIRD_PARTY_NOTICES.md)。本项目暂未授予额外的开源许可证，转载或再分发请联系仓库所有者。
+
+## 新项目目录（v1.0.15 起）
+
+```text
+项目目录/
+└── HTMLNativeStudio/
+    ├── HTML/          # app.json、页面、资源、项目规范
+    └── iOS/           # 导出的 Xcode 工程，每次导出独立目录
+```
+
+只应用于以后新建、接入和导出。现有项目的源码与关联路径不迁移。旧格式项目导出时，在其 HTMLNativeStudio 目录内生成 HTML 源码副本和 iOS 工程；原源码仍是编辑入口，HTML 副本首次创建后不自动覆盖。再次导出 iOS 会使用带编号的新目录，不覆盖先前工程。新建工程的原生目录在首次导出前为空。
