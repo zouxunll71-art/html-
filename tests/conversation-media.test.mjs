@@ -8,3 +8,12 @@ test('相对图片和带行号的中文文件链接基于对话目录解析',()=
  assert.equal(media.localPath(encodeURI(file),dir),fs.realpathSync(file));assert.equal(media.localPath('relative.png'),null);assert.equal(media.localPath('/missing/image.png',dir),null);
  }finally{fs.rmSync(dir,{recursive:true,force:true})}
 });
+
+test('图片缓存跨服务重启可读且不接受任意路径',()=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'studio-media-cache-'));
+ try{const file=path.join(dir,'photo.png'),cache=path.join(dir,'cache');fs.writeFileSync(file,'image');
+ const first=new ConversationMedia(cache),url=first.register(file);fs.unlinkSync(file);
+ const second=new ConversationMedia(cache),media=second.resolve(url.split('/').pop());
+ assert.equal(second.item({type:'userMessage',content:[{type:'localImage',path:file}]},dir).content[0].mediaUrl,url);assert.equal(fs.readFileSync(media.file,'utf8'),'image');assert.equal(second.resolve('../photo'),null);
+ }finally{fs.rmSync(dir,{recursive:true,force:true})}
+});

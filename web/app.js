@@ -184,6 +184,18 @@ function renderMessages(immediate = false) {
     const markup=(html || emptyChat) + (state.running[state.thread] ? `<div class="typing">${icon('loader-circle')}Codex 正在处理…</div>` : '');
     if(markup===lastMessagesMarkup&&state.thread===lastMessagesThread)return;
     lastMessagesMarkup=markup;lastMessagesThread=state.thread;el.innerHTML=markup;
+    el.querySelectorAll('img.conversation-image').forEach(img=>{
+      img.addEventListener('error',async()=>{
+        try{
+          const response=await fetch(img.getAttribute('src'),{headers:{'x-client-token':document.querySelector('meta[name="client-token"]').content},cache:'reload'});
+          if(!response.ok)throw new Error('missing');
+          const url=URL.createObjectURL(await response.blob());
+          img.onload=()=>URL.revokeObjectURL(url);
+          img.onerror=()=>{URL.revokeObjectURL(url);img.replaceWith(Object.assign(document.createElement('span'),{className:'muted',textContent:'参考图片暂不可用，请重新添加'}));};
+          img.src=url;
+        }catch{img.replaceWith(Object.assign(document.createElement('span'),{className:'muted',textContent:'参考图片暂不可用，请重新添加'}));}
+      },{once:true});
+    });
     el.querySelectorAll('[data-process-item] details').forEach((d,index)=>{d.dataset.detailKey=state.thread+':item:'+d.closest('[data-process-item]').dataset.processItem+':'+index});
     el.querySelectorAll('details[data-detail-key]').forEach(d=>{d.open=messageExpansion.get(d.dataset.detailKey)===true});
     el.querySelectorAll('a').forEach(a => { a.target = '_blank'; a.rel = 'noopener noreferrer'; });

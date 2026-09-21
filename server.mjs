@@ -36,7 +36,7 @@ const save = () => { fs.writeFileSync(registryPath + '.tmp', JSON.stringify(regi
 const rpc = new CodexRPC(CODEX), clients = new Set(), requests = new Map(), running = new Map(), loaded = new Set(), startingTurns = new Set();
 const sidebarSync=new SidebarSync(rpc);let sidebarSnapshot={projects:[],conversations:[]};
 const capabilities=new Capabilities(rpc);
-const conversationMedia=new ConversationMedia();
+const conversationMedia=new ConversationMedia(path.join(DATA,'conversation-media'));
 async function openDesktopProject(location){
   await exec(CODEX,['app',location],{timeout:15000});
   // Launching returns before the desktop commits its project. Wait for that
@@ -233,7 +233,7 @@ async function handle(req, res) {
     if(meta.kind!=='image')throw new Error('此附件不是图片');return text(res,fs.readFileSync(meta.path),meta.mime);
   }
   if(req.method==='GET'&&url.pathname.startsWith('/api/conversation-media/')){
-    const media=conversationMedia.files.get(url.pathname.slice('/api/conversation-media/'.length));
+    const media=conversationMedia.resolve(url.pathname.slice('/api/conversation-media/'.length));
     if(!media)return json(res,{error:'图片不在此对话中'},404);
     return text(res,fs.readFileSync(media.file),media.type);
   }
