@@ -1,0 +1,7 @@
+<ui-page id="settings" style="padding:20;gap:16;background:#FFFFFF">
+ <ui-segment id="segment" bind="segment" option-keys='["segment.first","segment.second"]' style="height:36"/>
+ <ui-text id="count" text-key="status.count" text-args='{"count":{"get":"state.count"}}' style="height:44"/>
+ <ui-button id="add" text-key="action.count" action="count" style="height:44"/>
+ <ui-icon id="currency" semantic="currency" symbol="c.circle" style="width:24;height:24;color:#235BDE"/>
+ <ui-button id="privacy" text-key="action.privacy" action="privacy" style="height:44"/>
+</ui-page>

@@ -1,0 +1,8 @@
+{
+  "nav.home": "首页",
+  "permission.camera": "在你选择拍摄照片时使用相机。",
+  "permission.photos": "在你选择图片时访问相册。",
+  "permission.microphone": "在你选择录音时使用麦克风。",
+  "permission.tracking": "允许追踪以提供个性化广告。",
+  "studio.error.unavailable": "本机服务未响应。"
+}

@@ -1,0 +1,68 @@
+{
+  "home": [
+    {
+      "type": "tab",
+      "page": "home"
+    }
+  ],
+  "detail": [
+    {
+      "type": "tab",
+      "page": "detail"
+    }
+  ],
+  "modal": [
+    {
+      "type": "animate",
+      "duration": 0.25,
+      "curve": "ease",
+      "actions": [
+        {
+          "type": "present",
+          "page": "modal"
+        }
+      ]
+    }
+  ],
+  "dismiss": [
+    {
+      "type": "animate",
+      "duration": 0.25,
+      "curve": "ease",
+      "actions": [
+        {
+          "type": "dismiss"
+        }
+      ]
+    }
+  ],
+  "animate": [
+    {
+      "type": "animate",
+      "duration": 0.55,
+      "curve": "spring",
+      "actions": [
+        {
+          "type": "set",
+          "path": "position",
+          "value": {
+            "op": "if",
+            "args": [
+              {
+                "op": "eq",
+                "args": [
+                  {
+                    "get": "state.position"
+                  },
+                  30
+                ]
+              },
+              240,
+              30
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

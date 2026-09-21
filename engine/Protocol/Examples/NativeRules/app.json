@@ -1,0 +1,114 @@
+{
+  "protocol": "html-native/1",
+  "id": "native-rules-example",
+  "name": "Native Rules",
+  "entry": "home",
+  "viewport": {
+    "width": 393,
+    "height": 852
+  },
+  "stateVersion": 1,
+  "state": {
+    "loading": false,
+    "selected": false,
+    "accepted": false,
+    "name": "",
+    "count": 0,
+    "segment": 0,
+    "items": [
+      {
+        "id": "one",
+        "title": "Sample note"
+      }
+    ]
+  },
+  "pages": [
+    {
+      "id": "home",
+      "name": "Home",
+      "role": "primary",
+      "html": "pages/home/page.html",
+      "navigation": {
+        "titleKey": "nav.home",
+        "buttons": [
+          {
+            "id": "privacy",
+            "titleKey": "action.privacy",
+            "symbol": "hand.raised",
+            "action": "privacy"
+          }
+        ]
+      }
+    },
+    {
+      "id": "settings",
+      "name": "Settings",
+      "role": "primary",
+      "html": "pages/settings/page.html",
+      "navigation": {
+        "titleKey": "nav.settings"
+      }
+    },
+    {
+      "id": "detail",
+      "name": "Detail",
+      "role": "detail",
+      "html": "pages/detail/page.html",
+      "navigation": {
+        "titleKey": "nav.detail"
+      }
+    },
+    {
+      "id": "confirm",
+      "name": "Confirm",
+      "role": "dialog",
+      "html": "pages/confirm/page.html",
+      "navigation": {
+        "hidden": true
+      },
+      "dismissOnBackdrop": true
+    }
+  ],
+  "components": {},
+  "actions": [
+    "actions.json"
+  ],
+  "tokens": "tokens/design.json",
+  "ios": {
+    "classPrefix": "NR",
+    "permissionKeys": {
+      "NSCameraUsageDescription": "permission.camera",
+      "NSPhotoLibraryUsageDescription": "permission.photos",
+      "NSMicrophoneUsageDescription": "permission.microphone",
+      "NSUserTrackingUsageDescription": "permission.tracking"
+    },
+    "currencySymbol": "c.circle"
+  },
+  "localization": {
+    "default": "en",
+    "files": {
+      "en": "localization/en.json",
+      "zh-Hans": "localization/zh-Hans.json"
+    }
+  },
+  "navigation": {
+    "tabs": [
+      {
+        "page": "home",
+        "titleKey": "nav.home",
+        "symbol": "house"
+      },
+      {
+        "page": "settings",
+        "titleKey": "nav.settings",
+        "symbol": "gearshape"
+      }
+    ],
+    "tint": "#235BDE",
+    "background": "#FFFFFF"
+  },
+  "links": {
+    "privacy": "https://example.com/privacy",
+    "terms": "https://example.com/terms"
+  }
+}

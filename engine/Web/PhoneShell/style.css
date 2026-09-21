@@ -1,0 +1,166 @@
+* {
+  box-sizing: border-box;
+}
+
+:root {
+  /* iPhone 17 Pro: 1206 × 2622 physical pixels at 3×. */
+  --iphone-17-pro-width: 402px;
+  --iphone-17-pro-height: 874px;
+  --phone-bezel: 16px;
+  --phone-frame-width: 434px;
+  --phone-frame-height: 906px;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: #ececec;
+}
+
+.phone-stage {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  padding: 20px;
+}
+
+.phone-frame {
+  --phone-scale: 1;
+  --phone-layout-width: var(--phone-frame-width);
+  --phone-layout-height: var(--phone-frame-height);
+  position: relative;
+  width: var(--phone-layout-width);
+  height: var(--phone-layout-height);
+}
+
+.phone-scale {
+  position: relative;
+  width: var(--phone-frame-width);
+  height: var(--phone-frame-height);
+  transform: scale(var(--phone-scale));
+  transform-origin: top left;
+}
+
+.phone-body {
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: var(--phone-frame-width);
+  height: var(--phone-frame-height);
+  padding: var(--phone-bezel);
+  border: 2px solid #343637;
+  border-radius: 70px;
+  background: linear-gradient(
+    115deg,
+    #777a7b 0%,
+    #222425 8%,
+    #050606 50%,
+    #2c2e2e 93%,
+    #777a7b 100%
+  );
+  box-shadow:
+    0 42px 72px rgba(0, 0, 0, 0.2),
+    0 12px 24px rgba(0, 0, 0, 0.14),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+}
+
+.phone-body::before {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 65px;
+  pointer-events: none;
+}
+
+.app-viewport {
+  position: relative;
+  width: var(--iphone-17-pro-width);
+  height: var(--iphone-17-pro-height);
+  overflow: hidden;
+  border-radius: 58px;
+  background: #000;
+  outline: 8px solid #050606;
+  box-shadow: 0 0 0 9px rgba(255, 255, 255, 0.08);
+}
+
+.dynamic-island {
+  position: absolute;
+  z-index: 10;
+  top: 12px;
+  left: 50%;
+  width: 122px;
+  height: 34px;
+  border-radius: 20px;
+  background: #030303;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.05);
+  transform: translateX(-50%);
+}
+
+.island-camera {
+  position: absolute;
+  top: 13px;
+  right: 16px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 35% 35%,
+    #1c496a,
+    #08131c 45%,
+    #000 70%
+  );
+}
+
+.side-button {
+  position: absolute;
+  z-index: 2;
+  width: 4px;
+  border-radius: 3px 0 0 3px;
+  background: linear-gradient(90deg, #323434, #767979);
+}
+
+.action-button {
+  top: 144px;
+  left: -3px;
+  height: 36px;
+}
+
+.volume-up {
+  top: 212px;
+  left: -3px;
+  height: 66px;
+}
+
+.volume-down {
+  top: 294px;
+  left: -3px;
+  height: 66px;
+}
+
+.power-button {
+  top: 226px;
+  right: -3px;
+  height: 102px;
+  border-radius: 0 3px 3px 0;
+}
+
+@media (max-width: 465px), (max-height: 937px) {
+  .phone-frame {
+    --phone-scale: 0.8;
+    --phone-layout-width: 347.2px;
+    --phone-layout-height: 724.8px;
+  }
+}
+
+@media (max-width: 365px), (max-height: 750px) {
+  .phone-frame {
+    --phone-scale: 0.7;
+    --phone-layout-width: 303.8px;
+    --phone-layout-height: 634.2px;
+  }
+}

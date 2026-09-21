@@ -1,0 +1,200 @@
+{
+  "app": {
+    "type": "object",
+    "required": [
+      "protocol",
+      "id",
+      "name",
+      "entry",
+      "pages"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "protocol": {
+        "const": "html-native/1"
+      },
+      "id": {
+        "type": "string",
+        "minLength": 1
+      },
+      "name": {
+        "type": "string",
+        "minLength": 1
+      },
+      "entry": {
+        "type": "string",
+        "minLength": 1
+      },
+      "pages": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "object",
+          "required": [
+            "id",
+            "html"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "html": {
+              "type": "string",
+              "minLength": 1
+            },
+            "css": {
+              "type": "string",
+              "minLength": 1
+            },
+            "role": {
+              "type": "string",
+              "minLength": 1
+            },
+            "onEnter": {
+              "type": "string",
+              "minLength": 1
+            },
+            "dismissOnBackdrop": {
+              "type": "boolean"
+            },
+            "navigation": {
+              "type": "object"
+            }
+          }
+        }
+      },
+      "viewport": {
+        "type": "object",
+        "required": [
+          "width",
+          "height"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "width": {
+            "type": "number",
+            "minimum": 240,
+            "maximum": 2048
+          },
+          "height": {
+            "type": "number",
+            "minimum": 240,
+            "maximum": 2048
+          }
+        }
+      },
+      "state": {
+        "type": "object"
+      },
+      "stateVersion": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "components": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "object",
+          "required": [
+            "html"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "html": {
+              "type": "string",
+              "minLength": 1
+            },
+            "css": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      },
+      "actions": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1
+        },
+        "uniqueItems": true
+      },
+      "tokens": {
+        "type": "string",
+        "minLength": 1
+      },
+      "localization": {
+        "type": [
+          "object",
+          "null"
+        ]
+      },
+      "ios": {
+        "type": [
+          "object",
+          "null"
+        ]
+      },
+      "navigation": {
+        "type": [
+          "object",
+          "null"
+        ]
+      },
+      "links": {
+        "type": "object"
+      }
+    }
+  },
+  "catalog": {
+    "type": "array",
+    "items": {
+      "type": "object",
+      "required": [
+        "id",
+        "path",
+        "kind"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "enum": [
+            "image",
+            "font"
+          ]
+        }
+      }
+    }
+  },
+  "actions": {
+    "type": "object",
+    "additionalProperties": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}

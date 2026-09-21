@@ -1,0 +1,14 @@
+<ui-page id="home" style="padding:20;gap:16;background:#F7F8FC">
+ <ui-text id="title" text-key="home.title" style="height:48;font-size:24;font-weight:600"/>
+ <ui-input id="name" bind="name" placeholder-key="input.name" style="height:44;background:#FFFFFF;border-radius:10"/>
+ <ui-checkbox id="accepted" bind="accepted" text-key="action.accept" style="height:44"/>
+ <ui-button id="selected" text-key="action.select" action="toggle-selected" selected='{"get":"state.selected"}' styles='{"background":{"op":"if","args":[{"get":"state.selected"},"#CFEBDD","#FFFFFF"]}}' style="height:44;border-radius:10"/>
+ <ui-text id="selected-label" text-key="status.selected" when='{"get":"state.selected"}' style="height:24"/>
+ <ui-button id="continue" text-key="action.detail" action="detail" disabled='{"get":"state.loading"}' style="height:48;background:#235BDE;color:#FFFFFF;border-radius:12;text-align:center"/>
+ <ui-row id="loading" when='{"get":"state.loading"}' style="height:32;gap:12">
+  <ui-spinner id="indicator" style="width:24;height:24;color:#235BDE"/>
+  <ui-text id="loading-text" text-key="status.loading" style="width:fill;height:32"/>
+ </ui-row>
+ <ui-button id="dialog" text-key="action.dialog" action="dialog" style="height:44"/>
+ <ui-button id="terms" text-key="action.terms" action="terms" style="height:44"/>
+</ui-page>

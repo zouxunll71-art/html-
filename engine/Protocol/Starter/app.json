@@ -1,0 +1,52 @@
+{
+  "protocol": "html-native/1",
+  "id": "my-app",
+  "name": "New App",
+  "entry": "home",
+  "viewport": {
+    "width": 393,
+    "height": 852
+  },
+  "stateVersion": 1,
+  "state": {},
+  "pages": [
+    {
+      "id": "home",
+      "name": "空白页",
+      "role": "primary",
+      "html": "pages/home/page.html",
+      "css": "pages/home/style.css",
+      "navigation": {
+        "titleKey": "nav.home"
+      }
+    }
+  ],
+  "components": {},
+  "actions": [
+    "actions.json"
+  ],
+  "tokens": "tokens/design.json",
+  "ios": {
+    "classPrefix": "HN",
+    "permissionKeys": {
+      "NSCameraUsageDescription": "permission.camera",
+      "NSPhotoLibraryUsageDescription": "permission.photos",
+      "NSMicrophoneUsageDescription": "permission.microphone",
+      "NSUserTrackingUsageDescription": "permission.tracking"
+    },
+    "currencySymbol": "c.circle"
+  },
+  "localization": {
+    "default": "en",
+    "files": {
+      "en": "localization/en.json",
+      "zh-Hans": "localization/zh-Hans.json"
+    }
+  },
+  "navigation": {
+    "tabs": [],
+    "tint": "#235BDE",
+    "background": "#FFFFFF"
+  },
+  "links": {}
+}

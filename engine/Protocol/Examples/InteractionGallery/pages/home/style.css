@@ -1,0 +1,4 @@
+.title {height:40;font-size:26;font-weight:700;color:#182230;}
+.field {height:48;padding:12;background:#FFFFFF;border-width:1;border-color:#D0D5DD;border-radius:12;font-size:16;}
+.primary {height:48;background:#4263EB;color:#FFFFFF;border-radius:12;text-align:center;font-size:17;}
+.secondary {height:48;background:#E9EDFF;color:#3D52BB;border-radius:12;text-align:center;font-size:17;}

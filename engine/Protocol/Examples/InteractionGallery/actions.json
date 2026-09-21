@@ -1,0 +1,69 @@
+{
+  "open": [
+    {
+      "type": "push",
+      "page": "detail",
+      "params": {
+        "title": "原生详情页"
+      }
+    }
+  ],
+  "item": [
+    {
+      "type": "push",
+      "page": "detail",
+      "params": {
+        "title": {
+          "get": "item.title"
+        }
+      }
+    }
+  ],
+  "back": [
+    {
+      "type": "back"
+    }
+  ],
+  "dialog": [
+    {
+      "type": "animate",
+      "duration": 0.25,
+      "curve": "ease",
+      "actions": [
+        {
+          "type": "present",
+          "page": "confirm"
+        }
+      ]
+    }
+  ],
+  "dismiss": [
+    {
+      "type": "dismiss"
+    }
+  ],
+  "increment": [
+    {
+      "type": "set",
+      "path": "count",
+      "value": {
+        "op": "add",
+        "args": [
+          {
+            "get": "state.count"
+          },
+          1
+        ]
+      }
+    }
+  ],
+  "persist": [
+    {
+      "type": "persist",
+      "key": "profile",
+      "value": {
+        "get": "state.name"
+      }
+    }
+  ]
+}

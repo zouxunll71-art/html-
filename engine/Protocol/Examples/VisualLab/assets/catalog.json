@@ -1,0 +1,12 @@
+[
+  {
+    "id": "pattern",
+    "path": "assets/shared/pattern.png",
+    "kind": "image"
+  },
+  {
+    "id": "body",
+    "path": "assets/fonts/body.ttf",
+    "kind": "font"
+  }
+]

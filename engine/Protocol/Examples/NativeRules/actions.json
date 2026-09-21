@@ -1,0 +1,82 @@
+{
+  "privacy": [
+    {
+      "type": "openURL",
+      "link": "privacy"
+    }
+  ],
+  "terms": [
+    {
+      "type": "openURL",
+      "link": "terms"
+    }
+  ],
+  "toggle-selected": [
+    {
+      "type": "toggle",
+      "path": "selected"
+    }
+  ],
+  "detail": [
+    {
+      "type": "if",
+      "when": {
+        "get": "state.accepted"
+      },
+      "then": [
+        {
+          "type": "set",
+          "path": "loading",
+          "value": true
+        },
+        {
+          "type": "delay",
+          "duration": 1.2,
+          "actions": [
+            {
+              "type": "set",
+              "path": "loading",
+              "value": false
+            },
+            {
+              "type": "push",
+              "page": "detail"
+            }
+          ]
+        }
+      ],
+      "else": [
+        {
+          "type": "present",
+          "page": "confirm"
+        }
+      ]
+    }
+  ],
+  "dialog": [
+    {
+      "type": "present",
+      "page": "confirm"
+    }
+  ],
+  "close": [
+    {
+      "type": "dismiss"
+    }
+  ],
+  "count": [
+    {
+      "type": "set",
+      "path": "count",
+      "value": {
+        "op": "add",
+        "args": [
+          {
+            "get": "state.count"
+          },
+          1
+        ]
+      }
+    }
+  ]
+}

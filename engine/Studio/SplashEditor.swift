@@ -1,0 +1,2 @@
+import UIKit
+extension StudioController {func toggleSplashEditor(forceOpen:Bool=false){guard let p=project else{return};Bridge.shared.request("/runtime?side=ios&after=-1"){[weak self]r in if case .success(let d)=r,let v=try? JSONSerialization.jsonObject(with:d) as? [String:Any],let model=v["model"] as? [String:Any],let pages=model["pages"] as? [String:[String:Any]],let id=pages.first(where:{$0.value["role"] as? String=="startup"})?.key ?? (model["entry"] as? String){self?.dispatchEvent(["type":"navigate","page":id],side:"ios")}}}}

@@ -1,0 +1,211 @@
+{
+  "protocol": "html-native/1",
+  "id": "visual-lab",
+  "name": "VisualLab 独立导出验证",
+  "entry": "home",
+  "viewport": {
+    "width": 402,
+    "height": 874
+  },
+  "stateVersion": 1,
+  "state": {
+    "position": 30,
+    "opacity": 1,
+    "selected": 0,
+    "amount": 2,
+    "items": [
+      {
+        "id": "1",
+        "title": "第 1 项"
+      },
+      {
+        "id": "2",
+        "title": "第 2 项"
+      },
+      {
+        "id": "3",
+        "title": "第 3 项"
+      },
+      {
+        "id": "4",
+        "title": "第 4 项"
+      },
+      {
+        "id": "5",
+        "title": "第 5 项"
+      },
+      {
+        "id": "6",
+        "title": "第 6 项"
+      },
+      {
+        "id": "7",
+        "title": "第 7 项"
+      },
+      {
+        "id": "8",
+        "title": "第 8 项"
+      },
+      {
+        "id": "9",
+        "title": "第 9 项"
+      },
+      {
+        "id": "10",
+        "title": "第 10 项"
+      },
+      {
+        "id": "11",
+        "title": "第 11 项"
+      },
+      {
+        "id": "12",
+        "title": "第 12 项"
+      },
+      {
+        "id": "13",
+        "title": "第 13 项"
+      },
+      {
+        "id": "14",
+        "title": "第 14 项"
+      },
+      {
+        "id": "15",
+        "title": "第 15 项"
+      },
+      {
+        "id": "16",
+        "title": "第 16 项"
+      },
+      {
+        "id": "17",
+        "title": "第 17 项"
+      },
+      {
+        "id": "18",
+        "title": "第 18 项"
+      },
+      {
+        "id": "19",
+        "title": "第 19 项"
+      },
+      {
+        "id": "20",
+        "title": "第 20 项"
+      },
+      {
+        "id": "21",
+        "title": "第 21 项"
+      },
+      {
+        "id": "22",
+        "title": "第 22 项"
+      },
+      {
+        "id": "23",
+        "title": "第 23 项"
+      },
+      {
+        "id": "24",
+        "title": "第 24 项"
+      },
+      {
+        "id": "25",
+        "title": "第 25 项"
+      },
+      {
+        "id": "26",
+        "title": "第 26 项"
+      },
+      {
+        "id": "27",
+        "title": "第 27 项"
+      },
+      {
+        "id": "28",
+        "title": "第 28 项"
+      },
+      {
+        "id": "29",
+        "title": "第 29 项"
+      },
+      {
+        "id": "30",
+        "title": "第 30 项"
+      },
+      {
+        "id": "31",
+        "title": "第 31 项"
+      },
+      {
+        "id": "32",
+        "title": "第 32 项"
+      },
+      {
+        "id": "33",
+        "title": "第 33 项"
+      },
+      {
+        "id": "34",
+        "title": "第 34 项"
+      },
+      {
+        "id": "35",
+        "title": "第 35 项"
+      },
+      {
+        "id": "36",
+        "title": "第 36 项"
+      },
+      {
+        "id": "37",
+        "title": "第 37 项"
+      },
+      {
+        "id": "38",
+        "title": "第 38 项"
+      },
+      {
+        "id": "39",
+        "title": "第 39 项"
+      },
+      {
+        "id": "40",
+        "title": "第 40 项"
+      }
+    ]
+  },
+  "pages": [
+    {
+      "id": "home",
+      "name": "home",
+      "role": "primary",
+      "html": "pages/home/page.html",
+      "dismissOnBackdrop": false
+    },
+    {
+      "id": "detail",
+      "name": "detail",
+      "role": "primary",
+      "html": "pages/detail/page.html",
+      "dismissOnBackdrop": false
+    },
+    {
+      "id": "modal",
+      "name": "modal",
+      "role": "dialog",
+      "html": "pages/modal/page.html",
+      "dismissOnBackdrop": true
+    }
+  ],
+  "components": {
+    "nav": {
+      "html": "components/nav/view.html"
+    }
+  },
+  "actions": [
+    "actions.json"
+  ],
+  "tokens": "tokens/design.json"
+}

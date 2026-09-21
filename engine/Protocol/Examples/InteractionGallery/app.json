@@ -1,0 +1,53 @@
+{
+  "protocol": "html-native/1",
+  "id": "interaction-gallery",
+  "name": "交互能力验证",
+  "entry": "home",
+  "viewport": {
+    "width": 402,
+    "height": 874
+  },
+  "stateVersion": 1,
+  "state": {
+    "name": "你好",
+    "accepted": false,
+    "count": 0,
+    "items": [
+      {
+        "id": "a",
+        "title": "项目 A"
+      },
+      {
+        "id": "b",
+        "title": "项目 B"
+      }
+    ]
+  },
+  "pages": [
+    {
+      "id": "home",
+      "name": "交互验证",
+      "role": "primary",
+      "html": "pages/home/page.html",
+      "css": "pages/home/style.css"
+    },
+    {
+      "id": "detail",
+      "name": "详情",
+      "role": "detail",
+      "html": "pages/detail/page.html"
+    },
+    {
+      "id": "confirm",
+      "name": "确认弹窗",
+      "role": "dialog",
+      "html": "pages/confirm/page.html",
+      "dismissOnBackdrop": true
+    }
+  ],
+  "components": {},
+  "actions": [
+    "actions.json"
+  ],
+  "tokens": "tokens/design.json"
+}

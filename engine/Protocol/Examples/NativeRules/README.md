@@ -1,0 +1,1 @@
+This is the current native-rules authoring example. Privacy and terms URLs are placeholders and must be replaced. No build or interactive test has been performed for this revision. See ../../Authoring/验收清单.md.

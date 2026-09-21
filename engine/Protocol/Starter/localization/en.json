@@ -1,0 +1,8 @@
+{
+  "nav.home": "Home",
+  "permission.camera": "Allow access to the camera when you choose to take a photo.",
+  "permission.photos": "Allow access to your photo library when you choose an image.",
+  "permission.microphone": "Allow microphone access when you choose to record audio.",
+  "permission.tracking": "Allow tracking to provide personalized advertising.",
+  "studio.error.unavailable": "The local service is unavailable."
+}

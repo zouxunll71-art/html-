@@ -1,0 +1,18 @@
+{
+  "name": "html-native-codex-workbench",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "build:mac": "python3 native/build_all.py",
+    "test:unit": "node --test tests/capabilities.test.mjs tests/conversation-groups.test.mjs tests/conversation-media.test.mjs tests/preview-binding.test.mjs tests/preview-scaffold.test.mjs tests/project-paths.test.mjs tests/project-removal.test.mjs tests/runtime-paths.test.mjs tests/sidebar.test.mjs tests/speed.test.mjs tests/usage.test.mjs",
+    "package:source": "python3 scripts/package_source.py"
+  },
+  "dependencies": {
+    "lucide": "^0.468.0",
+    "marked": "^15.0.0",
+    "dompurify": "^3.2.0"
+  }
+}

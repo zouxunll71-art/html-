@@ -1,0 +1,13 @@
+<ui-page id="home" style="padding:24;gap:16;background:#F4F6FA">
+<ui-column id="safe" style="height:24"/>
+<ui-text id="title" font="body" style="height:64;font-size:23" spans='[{"start":0,"end":6,"fontWeight":700,"color":"#2357E8"},{"start":7,"end":13,"italic":true,"underline":true}]'>Native assets + 富文本</ui-text>
+<ui-row id="visuals" style="height:116;gap:20"><ui-image id="image" asset="pattern" style="width:160;height:106;object-fit:fill;border-radius:16"/><ui-column id="gradient" style="width:160;height:106;border-radius:16" gradient='{"colors":["#2357E8","#A5D9F5"],"start":[0,0],"end":[0,1]}' shadow='{"color":"#00000033","x":0,"y":4,"blur":12}'/></ui-row>
+<ui-segment id="segment" options='["第一项","第二项","第三项"]' bind="selected" style="height:34"/>
+<ui-stepper id="stepper" bind="amount" min="0" max="20" step="1" style="width:110;height:34"/>
+<ui-text id="value" style="height:28">数量：{{state.amount}}；选择：{{state.selected}}</ui-text>
+<ui-button id="animate" action="animate" style="height:44;background:#2357E8;color:#FFFFFF;border-radius:12;text-align:center">移动与弹簧动画</ui-button>
+<ui-stack id="stage" style="height:80"><ui-column id="dot" style="width:48;height:48;background:#2357E8;border-radius:24" styles='{"left":{"get":"state.position"},"opacity":{"get":"state.opacity"}}'/></ui-stack>
+<ui-button id="open" action="modal" style="height:44;background:#E1E8FF;border-radius:12;text-align:center">打开弹窗</ui-button>
+<ui-column id="fill" style="height:fill"/>
+<ui-use id="navigation" component="nav"/>
+</ui-page>

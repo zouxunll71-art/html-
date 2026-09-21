@@ -1,0 +1,16 @@
+<ui-page id="home" style="background:#F5F7FB;padding:24;gap:14">
+ <ui-column id="safe" style="height:38"></ui-column>
+ <ui-text id="title" class="title">HTML → 原生 iOS</ui-text>
+ <ui-text id="intro" style="height:44;font-size:14;color:#667085">保存源码，立即查看原生效果。
+页面与交互由同一份规则驱动。</ui-text>
+ <ui-input id="name" bind="name" placeholder="输入名称" class="field"></ui-input>
+ <ui-row id="agreement" style="height:42;gap:12;align-items:center"><ui-checkbox id="accept" bind="accepted" style="width:32;height:32"></ui-checkbox><ui-text id="label" style="width:300;height:30;font-size:15">同意后可以进入详情页</ui-text></ui-row>
+ <ui-button id="open" action="open" disabled='{"op":"not","args":[{"get":"state.accepted"}]}' class="primary">进入详情</ui-button>
+ <ui-button id="dialog" action="dialog" class="secondary">打开弹窗</ui-button>
+ <ui-row id="counter" style="height:48;gap:12"><ui-text id="value" style="width:160;height:44;font-size:20">次数：{{state.count}}</ui-text><ui-button id="increment" action="increment" style="width:150;height:44;background:#E9EDFF;color:#3D52BB;border-radius:12;text-align:center">增加一次</ui-button></ui-row>
+ <ui-scroll id="list" style="height:fill;gap:10">
+  <ui-button id="item" repeat='{"get":"state.items"}' key="id" action="item" style="height:68;background:#FFFFFF;color:#17212B;border-radius:12;padding:12">{{item.title}}</ui-button>
+ </ui-scroll>
+ <ui-button id="persist" action="persist" style="height:44;color:#3D52BB;text-align:center">保存本地数据</ui-button>
+ <ui-column id="bottom" style="height:18"></ui-column>
+</ui-page>
