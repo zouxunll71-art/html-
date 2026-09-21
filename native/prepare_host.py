@@ -11,7 +11,7 @@ studio = target/'Studio'
 (studio/'App.swift').write_text((client/'native/Host.swift').read_text())
 (studio/'ClientLayout.swift').write_text((client/'native/ClientLayout.swift').read_text())
 p=studio/'StudioController.swift'
-s=p.read_text().replace(' let inspectorTabs=', ' var clientEmbedded=false\n var clientModeChanged:((Bool)->Void)?\n var clientShowInspector:(()->Void)?\n var clientProjectChanged:((String)->Void)?\n var clientLeftContainer:UIView?\n var clientRightContainer:UIView?\n let clientToolsScroll=UIScrollView()\n let clientPhoneScroll=UIScrollView()\n var clientZoom:CGFloat=0.8\n var clientFit=true\n let inspectorTabs=',1)
+s=p.read_text().replace(' let inspectorTabs=', ' var clientEmbedded=false\n var clientSyncChanged:((String)->Void)?\n var clientModeChanged:((Bool)->Void)?\n var clientShowInspector:(()->Void)?\n var clientProjectChanged:((String)->Void)?\n var clientLeftContainer:UIView?\n var clientRightContainer:UIView?\n let clientToolsScroll=UIScrollView()\n let clientPhoneScroll=UIScrollView()\n var clientZoom:CGFloat=0.8\n var clientFit=true\n let inspectorTabs=',1)
 s=s.replace('running=mode.selectedSegmentIndex==1;', 'running=mode.selectedSegmentIndex==1;clientModeChanged?(running);',1)
 s=s.replace('input:"p",modifierFlags:[]','input:"q",modifierFlags:.control').replace('按 P','按 Ctrl+Q')
 s=s.replace('func loadProjects(){', 'func loadProjects(){if clientEmbedded{return};',1)
@@ -19,6 +19,7 @@ s=s.replace('func useProject(_ p:StudioProject){','func useProject(_ p:StudioPro
 s=s.replace('let encoded=Bridge.shared.token.addingPercentEncoding(withAllowedCharacters:.urlQueryAllowed) ?? "";web.load(URLRequest(url:URL(string:Bridge.shared.base+"/web?token="+encoded)!))','web.load(URLRequest(url:URL(string:"http://127.0.0.1:18777/studio/web")!))')
 p.write_text(s)
 p=studio/'WorkspaceDesign.swift';s=p.read_text().replace('func layoutWorkspaceDesign(){','func layoutWorkspaceDesign(){\n  if clientEmbedded {layoutClientWorkspace();return}',1);p.write_text(s)
+p=studio/'WorkspaceDesign.swift';s=p.read_text().replace('syncStateLabel.textColor=UIColor(studioHex:text.contains', 'clientSyncChanged?(syncStateLabel.text ?? "同步中…");syncStateLabel.textColor=UIColor(studioHex:text.contains');p.write_text(s)
 p=studio/'SourceResources.swift';s=p.read_text().replace('func showInspectorMode(){','func showInspectorMode(){clientShowInspector?();',1);p.write_text(s)
 p=studio/'GroupSelection.swift';s=p.read_text().replace('func chooseLayer(_ id:String?){','func chooseLayer(_ id:String?){\n  if id != nil {clientShowInspector?()}',1);p.write_text(s)
 # Use the client lossless framebuffer stream; the original bridge is unchanged.

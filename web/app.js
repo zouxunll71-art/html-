@@ -633,3 +633,8 @@ $('prompt').addEventListener('keydown',event=>{
  if(nativeHost&&event.metaKey&&!event.ctrlKey&&!event.altKey&&event.code==='KeyV'&&!event.isComposing){event.preventDefault();event.stopPropagation();nativeMessage({action:'pasteClipboard'});}
 });
 window.receiveClipboardText=text=>{const input=$('prompt');input.setRangeText(text,input.selectionStart,input.selectionEnd,'end');input.dispatchEvent(new Event('input'));};
+
+function topIOSAction(action){if(!project()||project().nativePreview===false){toast('请先选择已接入工作台的项目');return}if(!nativeHost){toast('请在桌面工作台使用，或通过后台镜像操作');return}nativeMessage({action:'iosToolbar',command:action})}
+$('top-run-ios').onclick=()=>topIOSAction('run');$('top-link-ios').onclick=()=>topIOSAction('link');
+$('top-sync-menu').onclick=()=>showSidebarMenu($('top-sync-menu'),[{label:'检查并修复同步',icon:'refresh-cw',run:()=>topIOSAction('repair')},{label:'查看同步详情',icon:'info',run:()=>topIOSAction('details')}]);
+window.receiveSyncStatus=text=>{$('top-sync-menu').textContent=(text||'同步状态')+' ▾';$('top-sync-menu').title=(text||'同步状态')+' · 点击检查并修复同步';};

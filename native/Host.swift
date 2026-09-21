@@ -106,6 +106,7 @@ final class ClientHostController:UIViewController,WKScriptMessageHandler,WKNavig
   editor.workspace.addSubview(editor.clientPhoneScroll);editor.clientPhoneScroll.backgroundColor = .clear;editor.clientPhoneScroll.delaysContentTouches=false;editor.clientPhoneScroll.canCancelContentTouches=false
   for child in [editor.left,editor.right,editor.leftTitle,editor.rightTitle,editor.leftTools,editor.simulatorTools,editor.androidBack,editor.sourcePageButton,editor.closeWebButton] as [UIView]{editor.clientPhoneScroll.addSubview(child)}
   editor.workspace.bringSubviewToFront(editor.extractionProgress)
+  editor.clientSyncChanged={[weak self] text in guard let data=try? JSONSerialization.data(withJSONObject:[text]),let json=String(data:data,encoding:.utf8) else{return};self?.web.evaluateJavaScript("window.receiveSyncStatus?.(\(json)[0])",completionHandler:nil)}
   editor.clientModeChanged={[weak self] running in self?.web.evaluateJavaScript("window.receivePreviewMode?.(\(running))",completionHandler:nil)}
   editor.clientModeChanged?(editor.running)
   editor.clientShowInspector={[weak self] in self?.web.evaluateJavaScript("window.setClientPanel?.('right','properties')",completionHandler:nil)}
@@ -122,6 +123,9 @@ final class ClientHostController:UIViewController,WKScriptMessageHandler,WKNavig
  func userContentController(_ userContentController:WKUserContentController,didReceive message:WKScriptMessage){
   guard message.frameInfo.isMainFrame,let body=message.body as? [String:Any] else{return}
   switch body["action"] as? String {
+  case "iosToolbar":
+   guard embedded,editor.project != nil else{return}
+   switch body["command"] as? String{case "run":editor.runIOS();case "link":editor.copyAllPages();case "repair":editor.repairSynchronization();case "details":editor.showSyncDetails();default:break}
   case "previewMode":
    embed();guard let running=body["running"] as? Bool else{return};editor.mode.selectedSegmentIndex=running ? 1:0;editor.toggleRun()
   case "pasteClipboard":
