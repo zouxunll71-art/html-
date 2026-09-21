@@ -389,7 +389,7 @@ async function handle(req, res) {
       }
       case '/api/attachment/local': {
         const paths=body.paths;if(!Array.isArray(paths)||!paths.length||paths.length>6)throw new Error('每次最多附加 6 个文件或文件夹');
-        const metas=paths.map(raw=>{const file=directoryInput(raw),stat=fs.statSync(file);if(!stat.isFile()&&!stat.isDirectory())throw new Error('不支持此文件类型');const mime={'.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp'}[path.extname(file).toLowerCase()];return {path:file,name:path.basename(file),kind:stat.isDirectory()?'folder':mime?'image':'file',mime};});
+        const metas=paths.map(raw=>{if(typeof raw!=='string')throw new Error('附件路径无效');const input=raw.startsWith('file:')?fileURLToPath(raw):raw;if(!path.isAbsolute(input))throw new Error('附件需要完整路径');const file=fs.realpathSync(input),stat=fs.statSync(file);if(!stat.isFile()&&!stat.isDirectory())throw new Error('不支持此文件类型');const mime={'.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp'}[path.extname(file).toLowerCase()];return {path:file,name:path.basename(file),kind:stat.isDirectory()?'folder':mime?'image':'file',mime};});
         const attachments=metas.map(meta=>{const id=crypto.randomUUID()+'.ref';fs.writeFileSync(path.join(DATA,'uploads',id+'.json'),JSON.stringify(meta),{mode:0o600});return {id,name:meta.name,kind:meta.kind,preview:meta.kind==='image'?'/api/attachment/'+id:undefined};});return json(res,{attachments});
       }
       case '/api/upload': {
