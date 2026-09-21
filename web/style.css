@@ -76,3 +76,5 @@ body.viewing-image .client-topbar{visibility:hidden;pointer-events:none}
 #image-viewer .viewer-stage{inset:110px 30px 100px}
 
 .turn-process>summary{min-height:34px;width:100%;user-select:none;-webkit-user-select:none}.turn-process>summary:after{pointer-events:none}
+
+.project-folder-drop{width:100%;min-height:136px;border:1px dashed #c4cfda;border-radius:12px;background:#fafbfd;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:#506478;cursor:pointer}.project-folder-drop:hover,.project-folder-drop.drag-over{border-color:#3478e5;background:#eef5ff}.project-folder-drop span{font-size:13px;color:#82909e}.project-folder-selected{font-size:12px;overflow-wrap:anywhere;color:#66788a}#dialog-content details summary{font-size:12px;color:#8592a0;cursor:pointer}

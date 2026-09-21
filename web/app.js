@@ -12,6 +12,7 @@ window.reportNativeLayout = () => {
   if (!nativeHost) return;
   const bounds = el => { const r = el.getBoundingClientRect(); return {x:r.x,y:r.y,width:r.width,height:r.height}; };
   const layout={ action:'layout', center:bounds(document.querySelector('.canvas-layout')), left:bounds(document.querySelector('.sidebar')), right:bounds(document.querySelector('.chat-panel')), leftMode:leftPanelMode,leftNative:['library','tools'].includes(leftPanelMode),rightNative:rightPanelMode==='properties',preview:!!project()&&project().nativePreview!==false,modal:!!window.imageViewerActive||!!window.annotationActive||$('dialog').open||!$('sidebar-menu').classList.contains('hidden') };
+  const folderDrop=$('project-folder-drop');layout.projectDrop=$('dialog').open&&folderDrop?{...bounds(folderDrop),requestId:folderDrop.dataset.requestId}:null;
   const key=JSON.stringify(layout);if(key!==lastNativeLayout){lastNativeLayout=key;nativeMessage(layout)}
 };
 window.setClientPanel = (side, mode) => {
@@ -31,6 +32,7 @@ window.setClientPanel = (side, mode) => {
   requestAnimationFrame(window.reportNativeLayout);
 };
 new ResizeObserver(() => window.reportNativeLayout()).observe(document.querySelector('.app'));
+new ResizeObserver(() => window.reportNativeLayout()).observe($('dialog'));
 new ResizeObserver(() => window.reportNativeLayout()).observe(document.querySelector('.composer-wrap'));
 new MutationObserver(() => window.reportNativeLayout()).observe($('dialog'),{attributes:true,attributeFilter:['open']});
 addEventListener('resize',window.reportNativeLayout);
@@ -108,7 +110,20 @@ async function newProjectThread(id){if(id!==state.project)await selectProject(id
 function showThreadMenu(id,anchor){const c=state.conversations.find(c=>c.id===id);showSidebarMenu(anchor,[{label:'重命名',icon:'pencil',run:()=>renameConversation(id)},{label:c.pinned?'取消置顶':'置顶',icon:'pin',run:async()=>{await api('/api/thread/pin',{id,pinned:!c.pinned});await refreshRegistry(true)}},{label:'归档',icon:'archive',run:()=>archiveThread(id)}])}
 function showProjectMenu(id,anchor){const p=state.projects.find(p=>p.id===id);showSidebarMenu(anchor,[{label:p.nativePreview?'更改工作台关联':'接入工作台',icon:'plug',run:()=>showConnectWorkbench(id)},{label:'新对话',icon:'square-pen',run:()=>newProjectThread(id)},{label:'在访达中打开',icon:'folder-open',run:()=>api('/api/reveal',{id})},{label:'重命名项目',icon:'pencil',run:()=>showDialog('重命名项目',`<label class="field">项目名称<input id="sidebar-name" value="${escape(p.name)}" maxlength="80"></label>`,'保存',async()=>{await api('/api/project/rename',{id,name:$('sidebar-name').value});await refreshRegistry(true)})},{label:'移除项目',icon:'trash-2',run:()=>showRemoveProject(id)}])}
 async function showArchived(){const data=await api('/api/archived');let items=data.data,cursor=data.nextCursor;const content=()=>`<div class="archived-list">${items.map(t=>`<div class="archive-row"><span>${escape(t.name||t.title||t.preview||'新对话')}</span><button type="button" class="secondary" data-restore="${t.id}">恢复</button></div>`).join('')||'<p class="dialog-description">暂无已归档对话</p>'}</div>${cursor?'<button type="button" class="subtle" id="more-archived">加载更多</button>':''}`;const bind=()=>{$('dialog-content').querySelectorAll('[data-restore]').forEach(b=>b.onclick=attempt(async()=>{await api('/api/thread/restore',{id:b.dataset.restore});items=items.filter(t=>t.id!==b.dataset.restore);await refreshRegistry(true);$('dialog-content').innerHTML=content();bind()}));if($('more-archived'))$('more-archived').onclick=attempt(async()=>{const next=await api('/api/archived?cursor='+encodeURIComponent(cursor));items.push(...next.data);cursor=next.nextCursor;$('dialog-content').innerHTML=content();bind()})};showDialog('已归档对话',content(),'完成',async()=>{});bind()}
-function addCodexProject(){showDialog('添加项目','<label class="field">项目文件夹<input id="codex-project-path" placeholder="/Users/…/项目文件夹"></label>','添加',async()=>{await api('/api/project/add',{path:$('codex-project-path').value});await refreshRegistry(true)})}
+window.receiveProjectFolder=(requestId,path,error)=>{
+ const zone=$('project-folder-drop');if(!$('dialog').open||zone?.dataset.requestId!==requestId)return;
+ if(error){$('dialog-error').textContent=error;return}if(!path)return;
+ $('codex-project-path').value=path;$('project-folder-label').textContent=path.split('/').filter(Boolean).pop();
+ $('project-folder-selected').textContent=path;$('dialog-error').textContent='';window.reportNativeLayout();
+};
+function addCodexProject(){
+ const requestId=crypto.randomUUID();
+ showDialog('添加项目',`<label class="field">源文件夹</label><button type="button" id="project-folder-drop" class="project-folder-drop" data-request-id="${requestId}">${icon('folder-plus')}<strong id="project-folder-label">将文件夹拖到这里</strong><span>或点击选择文件夹</span></button><p id="project-folder-selected" class="project-folder-selected"></p><details><summary>手动填写路径</summary><label class="field"><input id="codex-project-path" placeholder="/Users/…/项目文件夹"></label></details>`,'添加项目',async()=>{await api('/api/project/add',{path:$('codex-project-path').value});await refreshRegistry(true)});
+ const zone=$('project-folder-drop');zone.onclick=()=>{if(window.webkit?.messageHandlers?.native)nativeMessage({action:'chooseProjectFolder',requestId});else $('dialog-error').textContent='请在桌面应用中选择文件夹，或展开下方手动填写路径。'};
+ zone.ondragover=e=>{e.preventDefault();zone.classList.add('drag-over')};zone.ondragleave=()=>zone.classList.remove('drag-over');
+ zone.ondrop=e=>{e.preventDefault();zone.classList.remove('drag-over');const raw=e.dataTransfer.getData('text/uri-list').split('\n').find(x=>x.startsWith('file:'));if(raw){try{window.receiveProjectFolder(requestId,decodeURIComponent(new URL(raw).pathname))}catch{}}else $('dialog-error').textContent='请在桌面应用中拖入文件夹，或点击选择文件夹。'};
+ window.reportNativeLayout();
+}
 $('project-section-toggle').onclick=()=>{projectSectionOpen=!projectSectionOpen;saveSidebarPrefs();renderSidebar()};$('recent-section-toggle').onclick=()=>{recentSectionOpen=!recentSectionOpen;saveSidebarPrefs();renderSidebar()};
 $('show-projects').onclick=()=>{expandedProjects=!expandedProjects;renderSidebar()};$('show-recent').onclick=()=>{expandedRecent=!expandedRecent;renderSidebar()};
 $('project-add').onclick=addCodexProject;$('recent-add').onclick=attempt(newThread);

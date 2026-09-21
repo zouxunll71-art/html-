@@ -1,5 +1,6 @@
 import UIKit
 import WebKit
+import UniformTypeIdentifiers
 
 final class ClientWebView: WKWebView {
  var passthrough=[CGRect]()
@@ -9,9 +10,12 @@ final class ClientWebView: WKWebView {
   return super.hitTest(point,with:event)
  }
 }
-final class ClientHostController:UIViewController,WKScriptMessageHandler,WKNavigationDelegate,WKUIDelegate {
+final class ClientHostController:UIViewController,WKScriptMessageHandler,WKNavigationDelegate,WKUIDelegate, UIDocumentPickerDelegate, UIDropInteractionDelegate {
  let editor=StudioController(),leftPanel=UIView(),rightPanel=UIView()
  var web:ClientWebView!
+ var folderDrop=UIView()
+ var folderRequest:String?
+ var pickerRequest:String?
  var embedded=false
  var currentProject:String?
  var projectLoading=false
@@ -20,6 +24,8 @@ final class ClientHostController:UIViewController,WKScriptMessageHandler,WKNavig
   let config=WKWebViewConfiguration();config.userContentController.add(self,name:"native")
   web=ClientWebView(frame:.zero,configuration:config);web.navigationDelegate=self;web.uiDelegate=self;web.isOpaque=false;web.backgroundColor = .clear;web.scrollView.backgroundColor = .clear;web.scrollView.isScrollEnabled=false;web.scrollView.contentInsetAdjustmentBehavior = .never
   view.addSubview(leftPanel);view.addSubview(rightPanel);view.addSubview(web)
+  folderDrop.isHidden=true;folderDrop.backgroundColor = .clear;folderDrop.isAccessibilityElement=true;folderDrop.accessibilityLabel="选择项目文件夹，也可拖入文件夹";folderDrop.accessibilityTraits = .button;view.addSubview(folderDrop)
+  folderDrop.addInteraction(UIDropInteraction(delegate:self));folderDrop.addGestureRecognizer(UITapGestureRecognizer(target:self,action:#selector(pickFolder)))
   leftPanel.backgroundColor=UIColor(studioHex:"#F8FAFC");rightPanel.backgroundColor = .white
   web.load(URLRequest(url:URL(string:"http://127.0.0.1:18777/?native=1")!))
  }
@@ -51,6 +57,8 @@ final class ClientHostController:UIViewController,WKScriptMessageHandler,WKNavig
  func userContentController(_ userContentController:WKUserContentController,didReceive message:WKScriptMessage){
   guard message.frameInfo.isMainFrame,let body=message.body as? [String:Any] else{return}
   switch body["action"] as? String {
+  case "chooseProjectFolder":
+   folderRequest=body["requestId"] as? String;pickFolder()
   case "captureAnnotation":
    guard embedded,!editor.view.isHidden,editor.view.bounds.width>0 else {web.evaluateJavaScript("window.receiveAnnotationCapture?.(null)",completionHandler:nil);return}
    let format=UIGraphicsImageRendererFormat();format.scale=view.window?.screen.scale ?? 2;format.opaque=true
@@ -63,6 +71,9 @@ final class ClientHostController:UIViewController,WKScriptMessageHandler,WKNavig
     web.evaluateJavaScript("window.receiveAnnotationCapture?.('\(value)')",completionHandler:nil)
    }else{web.evaluateJavaScript("window.receiveAnnotationCapture?.(null)",completionHandler:nil)}
   case "layout":
+   if let drop=body["projectDrop"] as? [String:Any],let request=drop["requestId"] as? String {
+    folderRequest=request;folderDrop.frame=rect(drop.filter{$0.key != "requestId"});folderDrop.isHidden=false
+   }else{folderRequest=nil;folderDrop.isHidden=true}
    embed();let center=rect(body["center"]),left=rect(body["left"]),right=rect(body["right"])
    let resized=editor.view.frame != center || leftPanel.frame != left || rightPanel.frame != right
    editor.view.frame=center;leftPanel.frame=left;rightPanel.frame=right
@@ -81,6 +92,38 @@ final class ClientHostController:UIViewController,WKScriptMessageHandler,WKNavig
   case "openURL":
    if let raw=body["url"] as? String,let url=URL(string:raw),["https","http"].contains(url.scheme ?? ""){UIApplication.shared.open(url)}
   default:break
+  }
+ }
+ @objc func pickFolder(){
+  guard let request=folderRequest,presentedViewController==nil else{return};pickerRequest=request
+  let picker=UIDocumentPickerViewController(forOpeningContentTypes:[.folder],asCopy:false)
+  picker.allowsMultipleSelection=false;picker.delegate=self;present(picker,animated:true)
+ }
+ func deliverFolder(_ url:URL?,request:String,error:String?=nil){
+  var path="",failure=error ?? ""
+  if let url=url {
+   let access=url.startAccessingSecurityScopedResource();defer{if access{url.stopAccessingSecurityScopedResource()}}
+   if url.isFileURL,(try? url.resourceValues(forKeys:[.isDirectoryKey]).isDirectory)==true{path=url.standardizedFileURL.path}
+   else{failure="请拖入文件夹，不能添加普通文件。"}
+  }
+  let args=(try? JSONSerialization.data(withJSONObject:[request,path,failure])).flatMap{String(data:$0,encoding:.utf8)} ?? "[]"
+  web.evaluateJavaScript("window.receiveProjectFolder?.(...\(args))",completionHandler:nil)
+ }
+ func documentPicker(_ controller:UIDocumentPickerViewController,didPickDocumentsAt urls:[URL]){
+  guard let request=pickerRequest else{return};pickerRequest=nil;deliverFolder(urls.first,request:request)
+ }
+ func documentPickerWasCancelled(_ controller:UIDocumentPickerViewController){pickerRequest=nil}
+ func dropInteraction(_ interaction:UIDropInteraction,canHandle session:UIDropSession)->Bool{
+  return folderRequest != nil && session.hasItemsConforming(toTypeIdentifiers:[UTType.fileURL.identifier])
+ }
+ func dropInteraction(_ interaction:UIDropInteraction,sessionDidUpdate session:UIDropSession)->UIDropProposal{UIDropProposal(operation:.copy)}
+ func dropInteraction(_ interaction:UIDropInteraction,performDrop session:UIDropSession){
+  guard let request=folderRequest else{return}
+  guard session.items.count==1,let provider=session.items.first?.itemProvider else{deliverFolder(nil,request:request,error:"请一次拖入一个项目文件夹。");return}
+  provider.loadItem(forTypeIdentifier:UTType.fileURL.identifier,options:nil){[weak self] item,error in
+   let url:URL?
+   if let value=item as? URL{url=value}else if let data=item as? Data{url=URL(dataRepresentation:data,relativeTo:nil)}else{url=nil}
+   DispatchQueue.main.async{self?.deliverFolder(url,request:request,error:url==nil ? "无法读取文件夹，请点击选择文件夹。":nil)}
   }
  }
  func webView(_ webView:WKWebView,didFinish navigation:WKNavigation!){web.evaluateJavaScript("window.reportNativeLayout?.()",completionHandler:nil)}
