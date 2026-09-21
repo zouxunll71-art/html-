@@ -337,9 +337,29 @@ function renderRequests() {
   const list = [...state.requests.values()].filter(r => r.params.threadId === state.thread);
   $('requests').innerHTML = list.map(r => {
     const questions = r.params.questions;
+    if(r.method==='mcpServer/elicitation/request'){
+      const p=r.params,schema=p.requestedSchema,fields=Object.entries(schema?.properties||{}).map(([name,f])=>{
+        const attr=`data-mcp-field="${escape(name)}" data-type="${escape(f.type)}" ${(schema.required||[]).includes(name)?'required':''}`;
+        const options=f.oneOf||f.items?.anyOf||(f.enum||f.items?.enum)?.map((value,index)=>({const:value,title:f.enumNames?.[index]||value}));
+        const input=options?`<select ${attr} ${f.type==='array'?'multiple':''}><option value="">请选择</option>${options.map(o=>`<option value="${escape(o.const)}">${escape(o.title)}</option>`).join('')}</select>`:f.type==='boolean'?`<select ${attr}><option value="">请选择</option><option value="true">是</option><option value="false">否</option></select>`:`<input ${attr} type="${['number','integer'].includes(f.type)?'number':'text'}" ${f.type==='integer'?'step="1"':''}>`;
+        return `<label class="field">${escape(f.title||name)}${f.description?`<small>${escape(f.description)}</small>`:''}${input}</label>`;
+      }).join('');
+      const url=typeof p.url==='string'&&/^https?:\/\//.test(p.url)?`<a href="${escape(p.url)}" target="_blank" rel="noopener noreferrer">打开插件页面</a>`:'';
+      return `<form class="request" data-mcp-request="${escape(r.id)}"><strong>${escape(p.serverName||'插件')}需要补充信息</strong><p>${escape(p.message||'插件未提供说明，请取消并重试。')}</p>${url}${fields}<button type="submit">${p.mode==='url'?'我已完成':'提交'}</button><button type="button" data-approval="${escape(r.id)}" data-decision="decline">取消</button></form>`;
+    }
     if (questions) return `<div class="request" data-request="${r.id}"><strong>Codex 需要你的补充</strong>${questions.map(q => `<label class="field">${escape(q.question)}${q.options?.length ? `<select data-answer="${escape(q.id)}">${q.options.map(o => `<option value="${escape(o.label)}">${escape(o.label)}</option>`).join('')}</select>` : `<input data-answer="${escape(q.id)}" placeholder="填写回答">`}</label>`).join('')}<button data-answer-send="${r.id}">提交回答</button></div>`;
     return `<div class="request"><strong>需要确认的操作</strong><p>${escape(r.params.reason || r.method)}</p><pre>${escape(r.params.command || JSON.stringify(r.params.permissions || r.params.changes || {}, null, 2))}</pre><button data-approval="${r.id}" data-decision="accept">允许这次操作</button><button data-approval="${r.id}" data-decision="decline">拒绝</button></div>`;
   }).join('');
+  $('requests').querySelectorAll('[data-mcp-request]').forEach(form=>form.onsubmit=event=>{
+    event.preventDefault();attempt(async()=>{
+      const content=Object.create(null);
+      for(const el of form.querySelectorAll('[data-mcp-field]')){
+        if(!el.value&&!el.required)continue;
+        content[el.dataset.mcpField]=el.dataset.type==='array'?[...el.selectedOptions].map(o=>o.value).filter(Boolean):el.dataset.type==='boolean'?el.value==='true':['number','integer'].includes(el.dataset.type)?Number(el.value):el.value;
+      }
+      await api('/api/request/respond',{id:form.dataset.mcpRequest,decision:'accept',content});state.requests.delete(form.dataset.mcpRequest);renderRequests();
+    })();
+  });
   $('requests').querySelectorAll('[data-approval]').forEach(b => b.onclick = attempt(async () => { await api('/api/request/respond', { id: b.dataset.approval, decision: b.dataset.decision }); state.requests.delete(b.dataset.approval); renderRequests(); }));
   $('requests').querySelectorAll('[data-answer-send]').forEach(b => b.onclick = attempt(async () => { const answers = {}; b.closest('.request').querySelectorAll('[data-answer]').forEach(i => answers[i.dataset.answer] = { answers: [i.value] }); await api('/api/request/respond', { id: b.dataset.answerSend, answers }); state.requests.delete(b.dataset.answerSend); renderRequests(); }));
 }
