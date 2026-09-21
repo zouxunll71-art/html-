@@ -98,21 +98,21 @@ final class DeviceSurface:UIView,UIDragInteractionDelegate,UIDropInteractionDele
   let maskPath=UIBezierPath()
   if selectedIDs.count>1{for item in nodes where selectedIDs.contains(item.id){let region=clippingRect(for:item,map:map);if !region.isNull{maskPath.append(UIBezierPath(rect:actual(region)))}}}else if !clip.isNull{maskPath.append(UIBezierPath(rect:actual(clip)))}
   selectionMask.path=maskPath.cgPath
-  if selectedIDs.count<=1 && (clip.isNull || !clip.intersects(n.visualBounds)){selection.isHidden=true;handle.isHidden=true;rotateHandle.isHidden=true;return}
+  if selectedIDs.count<=1 && (clip.isNull || !clip.intersects(n.selectionBounds)){selection.isHidden=true;handle.isHidden=true;rotateHandle.isHidden=true;return}
   if selectedIDs.count>1 {
-   let rect=nodes.filter{selectedIDs.contains($0.id)}.reduce(CGRect.null){$0.union($1.visualBounds)}
+   let rect=nodes.filter{selectedIDs.contains($0.id)}.reduce(CGRect.null){$0.union($1.selectionBounds)}
    selection.isHidden=false;selection.transform = .identity;selection.frame=actual(rect);handle.isHidden=isSource;handle.frame=CGRect(x:selection.frame.maxX-6,y:selection.frame.maxY-6,width:12,height:12);rotateHandle.isHidden=true;return
   }
   selection.isHidden=false;handle.isHidden=isSource;rotateHandle.isHidden=isSource
-  selection.transform = .identity;selection.frame=actual(n.frame);selection.transform=CGAffineTransform(rotationAngle:n.rotation * .pi/180).scaledBy(x:n.scale ?? 1,y:n.scale ?? 1)
+  selection.transform = .identity;selection.frame=actual(n.selectionBounds)
   handle.frame=CGRect(x:selection.frame.maxX-5,y:selection.frame.maxY-5,width:10,height:10)
   rotateHandle.frame=CGRect(x:selection.center.x-5,y:selection.frame.minY-22,width:10,height:10)
  }
  func clippingRect(for node:StudioNode,map:[String:StudioNode])->CGRect{
-  if node.hidden{return .null}
+  if node.hidden || node.opacity<=0.01{return .null}
   var rect=CGRect(origin:.zero,size:logicalSize),parent=node.parent,seen=Set<String>()
   while let id=parent,seen.insert(id).inserted,let container=map[id]{
-   if container.hidden{return .null}
+   if container.hidden || container.opacity<=0.01{return .null}
    if container.type=="scroll" || container.clip==true{rect=rect.intersection(container.frame)}
    parent=container.parent
   }
@@ -121,9 +121,9 @@ final class DeviceSurface:UIView,UIDragInteractionDelegate,UIDropInteractionDele
  func hit(_ point:CGPoint)->StudioNode?{
   let map=Dictionary(nodes.map{($0.id,$0)},uniquingKeysWith:{_,latest in latest})
   let hits=nodes.reversed().filter{n in
-   guard !n.hidden && !n.locked && clippingRect(for:n,map:map).contains(point) else{return false}
-   let center=CGPoint(x:n.x+n.width/2,y:n.y+n.height/2);let p=CGPoint(x:point.x-center.x,y:point.y-center.y).applying(CGAffineTransform(rotationAngle: -n.rotation * .pi/180))
-   return CGRect(x:-n.width/2,y:-n.height/2,width:n.width,height:n.height).contains(p)
+   guard n.hasVisibleSelectionContent && clippingRect(for:n,map:map).contains(point) else{return false}
+   let center=CGPoint(x:n.x+n.width/2,y:n.y+n.height/2);let p=CGPoint(x:point.x-center.x,y:point.y-center.y).applying(CGAffineTransform(rotationAngle: -n.rotation * .pi/180).scaledBy(x:1/max(0.001,n.scale ?? 1),y:1/max(0.001,n.scale ?? 1)))
+   return n.selectionFrame.offsetBy(dx:-center.x,dy:-center.y).contains(p)
   }
   guard isSource else{return hits.first}
   // Resource picking favors the smallest visible leaf over a containing backdrop.
@@ -170,10 +170,10 @@ final class DeviceSurface:UIView,UIDragInteractionDelegate,UIDropInteractionDele
   if g.state == .began {
    let translation=g.translation(in:self);dragStart=pointerOrigin ?? logical(CGPoint(x:point.x-translation.x,y:point.y-translation.y));changed=false
    if isSource {if operate{onPointer?("down",p)};return}
-   if selectedIDs.count>1 && nodes.contains(where:{selectedIDs.contains($0.id) && $0.visualBounds.contains(dragStart)}){action="move"}
+   if selectedIDs.count>1 && nodes.contains(where:{selectedIDs.contains($0.id) && $0.selectionBounds.contains(dragStart)}){action="move"}
    else if !handle.isHidden && handle.frame.insetBy(dx:-12,dy:-12).contains(CGPoint(x:point.x-screenRect.minX,y:point.y-screenRect.minY)){action="resize"}
    else if !rotateHandle.isHidden && rotateHandle.frame.insetBy(dx:-12,dy:-12).contains(CGPoint(x:point.x-screenRect.minX,y:point.y-screenRect.minY)){action="rotate"}
-   else{action=tool=="resize" || tool=="rotate" ? tool : "move";if let target=hit(dragStart){selected=target.id};onSelect?(selected)}
+   else{action=tool=="resize" || tool=="rotate" ? tool : "move";selected=hit(dragStart)?.id;onSelect?(selected)}
    if selectedIDs.count>1{action="move"}
    if let n=nodes.first(where:{$0.id==selected}){lastAngle=atan2(p.y-n.frame.midY,p.x-n.frame.midX)}
   }
