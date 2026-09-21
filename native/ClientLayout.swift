@@ -30,7 +30,7 @@ extension StudioController {
   syncStateLabel.frame=CGRect(x:20+half,y:316,width:half,height:32)
   repairSyncButton.frame=CGRect(x:14,y:358,width:sw-28,height:34)
   runIOSButton.frame=CGRect(x:14,y:400,width:sw-28,height:34)
-  editingTools.frame=CGRect(x:14,y:452,width:sw-28,height:234)
+  // Editing tools stay beside the phones, independent of sidebar tabs.
   clientToolsScroll.contentSize=CGSize(width:sw,height:706)
   sidebar.frame=CGRect(x:0,y:0,width:sw,height:sh)
   segments.frame=CGRect(x:10,y:14,width:sw-20,height:32);search.frame=CGRect(x:3,y:53,width:sw-6,height:42)
@@ -43,13 +43,17 @@ extension StudioController {
   inspector.contentSize=CGSize(width:iw,height:propertyStack.frame.maxY+24)
   workspace.frame=CGRect(x:0,y:0,width:w,height:max(100,h-24));footer.frame=CGRect(x:12,y:h-24,width:w-24,height:23)
   let cw=workspace.bounds.width,hh=workspace.bounds.height
-  clientPhoneScroll.frame=CGRect(x:0,y:8,width:cw,height:max(100,hh-36))
+  let rail:CGFloat=48,phoneArea=max(1,cw-rail)
+  clientEditingScroll.frame=CGRect(x:5,y:32,width:40,height:max(40,hh-64))
+  let toolsHeight=CGFloat(editingTools.arrangedSubviews.count)*34-4
+  editingTools.frame=CGRect(x:0,y:0,width:40,height:toolsHeight);clientEditingScroll.contentSize=CGSize(width:40,height:toolsHeight)
+  clientPhoneScroll.frame=CGRect(x:rail,y:8,width:phoneArea,height:max(100,hh-36))
   // Fit the entire devices, labels and bottom controls inside the viewport.
-  let fittedScale=max(0.01,min((clientPhoneScroll.bounds.height-64)/910,(cw-44)/912))
+  let fittedScale=max(0.01,min((clientPhoneScroll.bounds.height-64)/910,(phoneArea-44)/912))
   let scale=clientFit ? fittedScale:clientZoom
   let pixels=view.window?.screen.scale ?? traitCollection.displayScale
   func snap(_ n:CGFloat)->CGFloat{floor(n*pixels)/pixels}
-  let pw=snap(456*scale),ph=snap(910*scale),gap:CGFloat=16,contentW=max(cw,pw*2+gap+28),start=snap((contentW-pw*2-gap)/2)
+  let pw=snap(456*scale),ph=snap(910*scale),gap:CGFloat=16,contentW=max(phoneArea,pw*2+gap+28),start=snap((contentW-pw*2-gap)/2)
   clientPhoneScroll.contentSize=CGSize(width:contentW,height:ph+64)
   clientPhoneScroll.isScrollEnabled = !clientFit
   clientPhoneScroll.showsVerticalScrollIndicator = !clientFit
