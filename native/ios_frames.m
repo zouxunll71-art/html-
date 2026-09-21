@@ -53,27 +53,32 @@ int main(int argc,const char **argv){@autoreleasepool{
  id dev=[get(set,@"devicesByUDID") objectForKey:[[NSUUID alloc]initWithUUIDString:[NSString stringWithUTF8String:argv[1]]]];id io=get(dev,@"io");id screen=nil;
  for(id port in get(io,@"ioPorts")){id desc=get(port,@"descriptor");if([desc conformsToProtocol:objc_getProtocol("SimDisplayIOSurfaceRenderable")]){IOSurfaceRef surface=(__bridge IOSurfaceRef)get(desc,@"framebufferSurface");if(surface && IOSurfaceGetWidth(surface)>0){screen=desc;break;}}}
  if(!screen){fprintf(stderr,"No framebuffer surface\n");return 3;}
- CIContext *context=[CIContext contextWithOptions:@{kCIContextUseSoftwareRenderer:@NO,kCIContextCacheIntermediates:@YES}];CGColorSpaceRef color=CGColorSpaceCreateDeviceRGB();double lastSent=0,lastResolve=0,nextFrame=0,lastChanged=0;NSData *lastJPEG=nil;
+ CIContext *context=[CIContext contextWithOptions:@{kCIContextUseSoftwareRenderer:@NO,kCIContextCacheIntermediates:@YES}];CGColorSpaceRef color=CGColorSpaceCreateDeviceRGB();double lastSent=0,lastResolve=0,nextFrame=0,lastChanged=0;NSData *lastJPEG=nil;BOOL lastWasLossless=YES;
  NSMutableData *previous=[NSMutableData data];uint32_t format=0;size_t width=0,height=0,stride=0;
  while(true){@autoreleasepool{
   if(getppid()!=parent)break;
   double now=monotonicTime();
   if(now<nextFrame){usleep((useconds_t)((nextFrame-now)*1e6));continue;}
   // Keep interaction at 60 fps; a static screen only needs an inexpensive wake-up check.
-  nextFrame=now+(now-lastChanged<0.4 ? 1.0/60.0 : 1.0/10.0);
+  nextFrame=now+(now-lastChanged<0.4 ? 1.0/60.0 : 1.0/20.0);
   if(now-lastResolve>1){
    io=get(dev,@"io");
    for(id port in get(io,@"ioPorts")){id desc=get(port,@"descriptor");if([desc conformsToProtocol:objc_getProtocol("SimDisplayIOSurfaceRenderable")]){IOSurfaceRef candidate=(__bridge IOSurfaceRef)get(desc,@"framebufferSurface");if(candidate && IOSurfaceGetWidth(candidate)>0){screen=desc;break;}}}
    lastResolve=now;
   }
   IOSurfaceRef surface=(__bridge IOSurfaceRef)get(screen,@"framebufferSurface");if(!surface){usleep(33000);continue;}
-  if(argc<=2 && !pixelsChanged(surface,previous,&format,&width,&height,&stride) && lastJPEG){
+  BOOL changed=argc>2 || pixelsChanged(surface,previous,&format,&width,&height,&stride);
+  BOOL settle=!changed && !lastWasLossless && now-lastChanged>=0.15;
+  if(!changed && !settle && lastJPEG){
    if(now-lastSent>=1){if(!sendFrame(lastJPEG))break;lastSent=now;}
    continue;
   }
-  lastChanged=now;nextFrame=now+1.0/60.0;
+  if(changed){lastChanged=now;nextFrame=now+1.0/60.0;}
   CIImage *image=[CIImage imageWithIOSurface:surface];
-  NSData *jpeg=[context PNGRepresentationOfImage:image format:kCIFormatRGBA8 colorSpace:color options:@{}];
+  // Encode live motion cheaply; restore a lossless frame once interaction settles.
+  BOOL lossless=argc>2 || settle;
+  NSData *jpeg=lossless ? [context PNGRepresentationOfImage:image format:kCIFormatRGBA8 colorSpace:color options:@{}] : [context JPEGRepresentationOfImage:image colorSpace:color options:@{(__bridge NSString *)kCGImageDestinationLossyCompressionQuality:@0.9}];
+  lastWasLossless=lossless;
   if(!jpeg.length){previous.length=0;continue;}
   if(argc>2){[jpeg writeToFile:[NSString stringWithUTF8String:argv[2]] atomically:YES];break;}
   if([jpeg isEqualToData:lastJPEG] && now-lastSent<1)continue;lastJPEG=jpeg;

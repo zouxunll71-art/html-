@@ -5,7 +5,7 @@ export class SidebarSync {
   invalidate(){this.at=0;}
   async pages(method,params={}){let data=[],cursor=null;do{const page=await this.rpc.call(method,{...params,limit:100,cursor});data.push(...page.data);cursor=page.nextCursor;}while(cursor);return data;}
   async read(force=false){
-    if(!force&&this.cached&&Date.now()-this.at<8000)return this.cached;
+    if(!force&&this.cached&&Date.now()-this.at<1500)return this.cached;
     if(this.pending)return this.pending;
     this.pending=(async()=>{await this.rpc.start();const [projects,threads,sections]=await Promise.all([this.pages('project/list'),this.pages('thread/list',{sortKey:'updated_at',useStateDbOnly:true}),this.pages('threadSection/list')]);
       this.projects=new Map(projects.map(p=>[p.id,p]));this.threads=new Map(threads.map(t=>[t.id,t]));this.cached={projects,threads,sections,updatedAt:Date.now()};this.at=Date.now();return this.cached;

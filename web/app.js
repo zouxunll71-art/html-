@@ -199,7 +199,21 @@ function loadHistory(thread) {
   }
   renderMessages(true); updateRunning();
 }
-async function refreshRegistry(force=false) { const value = await api('/api/state'+(force?'?refresh=1':'')); state.projects = value.projects; state.conversations = value.registry.conversations; state.running = value.running; if(state.thread&&!currentConversation()){state.thread=null;state.items.clear();renderMessages(true)} renderSidebar(); updateRunning(); return value; }
+let registryRefresh=null,registryRefreshLight=false,registryRenderKey='';
+async function refreshRegistry(force=false,light=false) {
+ if(registryRefresh){if(!force&&(light||!registryRefreshLight))return registryRefresh;await registryRefresh.catch(()=>{});}
+ registryRefreshLight=light;
+ registryRefresh=(async()=>{
+  const query=new URLSearchParams();if(force)query.set('refresh','1');if(light)query.set('sidebar','1');
+  const value=await api('/api/state?'+query);state.projects=value.projects;state.conversations=value.registry.conversations;state.running=value.running;
+  if(state.thread&&!currentConversation()){state.thread=null;state.items.clear();renderMessages(true)}
+  const key=JSON.stringify([state.projects,state.conversations,state.running,state.project,state.thread]);
+  if(key!==registryRenderKey){registryRenderKey=key;renderSidebar();updateRunning();}
+  $('sidebar-sync-state').textContent='与 Codex 同步';return value;
+ })().finally(()=>{registryRefresh=null});return registryRefresh;
+}
+let sidebarEventTimer;
+function scheduleSidebarSync(){clearTimeout(sidebarEventTimer);sidebarEventTimer=setTimeout(()=>{if(!document.hidden&&!state.switching&&!$('dialog').open&&$('sidebar-menu').classList.contains('hidden'))refreshRegistry(false,true).catch(()=>{})},150)}
 async function selectProject(id) {
   if (state.switching || id === state.project) return; state.switching = true;
   try {
@@ -299,10 +313,10 @@ $('composer').onsubmit = attempt(async event => {
 $('prompt').onkeydown = event => { if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); if (!state.running[state.thread]&&!state.remoteRunning[state.thread]) $('composer').requestSubmit(); } };
 $('prompt').oninput = () => { $('prompt').style.height = 'auto'; $('prompt').style.height = Math.min(170, $('prompt').scrollHeight) + 'px'; };
 document.addEventListener('keydown', event => { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'n') { event.preventDefault(); attempt(newThread)(); } });
-function renderAttachments() { $('attachments').innerHTML = state.attachments.map(a => `<div class="attachment"><button type="button" class="attachment-edit" data-edit="${a.id}" aria-label="标注图片 ${escape(a.name)}"><img src="${a.preview}" alt="${escape(a.name)}"></button><span>${escape(a.name)}</span><button type="button" data-remove="${a.id}" aria-label="移除图片">${icon('x')}</button></div>`).join(''); $('attachments').querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>window.editWorkbenchAttachment(b.dataset.edit)); $('attachments').querySelectorAll('[data-remove]').forEach(b => b.onclick = () => { const a = state.attachments.find(a => a.id === b.dataset.remove); URL.revokeObjectURL(a.preview); state.attachments = state.attachments.filter(a => a.id !== b.dataset.remove); renderAttachments(); }); icons(); }
-async function addFiles(files) { for (const file of files) { if (state.attachments.length >= 6) throw new Error('每次最多附加 6 张参考图'); const data = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(file); }); const result = await api('/api/upload', { data, name: file.name }); state.attachments.push({ ...result, preview: URL.createObjectURL(file) }); renderAttachments(); } }
+function renderAttachments() { $('attachments').innerHTML = state.attachments.map(a => `<div class="attachment">${a.kind==='file'?icon('file-text'):`<button type="button" class="attachment-edit" data-edit="${a.id}" aria-label="标注图片 ${escape(a.name)}"><img src="${a.preview}" alt="${escape(a.name)}"></button>`}<span>${escape(a.name)}</span><button type="button" data-remove="${a.id}" aria-label="移除附件">${icon('x')}</button></div>`).join(''); $('attachments').querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>window.editWorkbenchAttachment(b.dataset.edit)); $('attachments').querySelectorAll('[data-remove]').forEach(b => b.onclick = () => { const a = state.attachments.find(a => a.id === b.dataset.remove); URL.revokeObjectURL(a.preview); state.attachments = state.attachments.filter(a => a.id !== b.dataset.remove); renderAttachments(); }); icons(); }
+async function addFiles(files) { for (const file of files) { if(file.size>16*1024*1024)throw new Error('每个文件不能超过 16 MB'); if (state.attachments.length >= 6) throw new Error('每次最多附加 6 个文件'); const data = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(file); }); const result = await api('/api/upload', { data, name: file.name }); state.attachments.push({ ...result, preview: URL.createObjectURL(file) }); renderAttachments(); } }
 $('attach').onclick = () => $('file-input').click(); $('file-input').onchange = attempt(async () => { await addFiles($('file-input').files); $('file-input').value = ''; });
-$('prompt').addEventListener('paste', attempt(async event => { const images = [...(event.clipboardData?.files || [])].filter(f => f.type.startsWith('image/')); if (images.length) { event.preventDefault(); await addFiles(images); } }));
+$('prompt').addEventListener('paste', attempt(async event => { const images = [...(event.clipboardData?.files || [])]; if (images.length) { event.preventDefault(); await addFiles(images); } }));
 function renderRequests() {
   const list = [...state.requests.values()].filter(r => r.params.threadId === state.thread);
   $('requests').innerHTML = list.map(r => {
@@ -315,6 +329,7 @@ function renderRequests() {
 }
 function eventMessage(event) {
   state.sequence = Math.max(state.sequence, event.sequence || 0); const p = event.params || {};
+  if(/^(project\/|thread\/(name|archived|unarchived|started|project)|threadSection\/)/.test(event.method))scheduleSidebarSync();
   if (event.method === 'client/request') { state.requests.set(String(p.id), p); renderRequests(); return; }
   if (event.method === 'client/request/resolved') { state.requests.delete(String(p.id)); renderRequests(); return; }
   if (event.method === 'client/offline') { state.ready = false; $('account-status').textContent = '连接已断开'; $('account-dot').classList.add('offline'); updateRunning(); toast(p.message, true); return; }
@@ -460,9 +475,9 @@ async function boot() {
   window.reportNativeLayout();
   applyZoom(true);
   setInterval(()=>{if(!document.hidden)refreshUsage()},60000);
-  let sidebarBusy=false;setInterval(async()=>{if(document.hidden||state.switching||sidebarBusy||$('dialog').open||!$('sidebar-menu').classList.contains('hidden'))return;sidebarBusy=true;try{await refreshRegistry();const c=currentConversation();if(c&&c.updatedAt!==displayedThreadUpdate&&!state.running[state.thread]){await syncConversationTail();displayedThreadUpdate=c.updatedAt}}catch{$('sidebar-sync-state').textContent='同步中断，点击菜单重试'}finally{sidebarBusy=false}},10000);
-  setInterval(()=>syncConversationTail().catch(()=>{}),2500);
-  addEventListener('focus',()=>{if(!state.switching)refreshRegistry().catch(()=>{})});
+  let sidebarBusy=false;setInterval(async()=>{if(document.hidden||state.switching||sidebarBusy||$('dialog').open||!$('sidebar-menu').classList.contains('hidden'))return;sidebarBusy=true;try{await refreshRegistry(false,true);const c=currentConversation();if(c&&c.updatedAt!==displayedThreadUpdate&&!state.running[state.thread]){await syncConversationTail();displayedThreadUpdate=c.updatedAt}}catch{$('sidebar-sync-state').textContent='同步中断，点击菜单重试'}finally{sidebarBusy=false}},2000);
+  setInterval(()=>syncConversationTail().catch(()=>{}),1500);
+  addEventListener('focus',scheduleSidebarSync);document.addEventListener('visibilitychange',()=>{if(!document.hidden)scheduleSidebarSync()});
 }
 window.nativeProjectChanged=async id=>{
   if(!nativeHost || !id || id===previewId())return;
@@ -533,7 +548,7 @@ installAnnotation({
   nativeHost,nativeMessage,toast,icons,
   getAttachment:id=>state.attachments.find(a=>a.id===id),
   async commit(blob,editingId){
-    if(!editingId&&state.attachments.length>=6)throw new Error('每次最多附加 6 张参考图，请先移除一张');
+    if(!editingId&&state.attachments.length>=6)throw new Error('每次最多附加 6 个文件，请先移除一个');
     const file=new File([blob],'标注-'+new Date().toISOString().replace(/[:.]/g,'-')+'.png',{type:'image/png'});
     if(editingId){const index=state.attachments.findIndex(a=>a.id===editingId);if(index<0)throw new Error('原附件已移除');const data=await new Promise(resolve=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.readAsDataURL(file)});const result=await api('/api/upload',{data,name:file.name});URL.revokeObjectURL(state.attachments[index].preview);state.attachments[index]={...result,preview:URL.createObjectURL(file)};renderAttachments();}
     else await addFiles([file]);
@@ -562,7 +577,7 @@ $('messages').addEventListener('dragstart',e=>{const img=e.target.closest('img')
 const dropArea=document.querySelector('.composer-wrap');
 dropArea.addEventListener('dragover',e=>{e.preventDefault();e.dataTransfer.dropEffect='copy';dropArea.classList.add('image-drop-target')});
 dropArea.addEventListener('dragleave',e=>{if(!dropArea.contains(e.relatedTarget))dropArea.classList.remove('image-drop-target')});
-dropArea.addEventListener('drop',attempt(async e=>{e.preventDefault();e.stopPropagation();dropArea.classList.remove('image-drop-target');const files=[...e.dataTransfer.files].filter(f=>f.type.startsWith('image/'));if(files.length){await addFiles(files);$('prompt').focus();return}const src=e.dataTransfer.getData('application/x-workbench-image')||e.dataTransfer.getData('text/uri-list').split('\n').find(s=>s&&!s.startsWith('#'));if(src)await attachConversationImage(src)}));
+dropArea.addEventListener('drop',attempt(async e=>{e.preventDefault();e.stopPropagation();dropArea.classList.remove('image-drop-target');const entries=[...e.dataTransfer.items].map(i=>i.webkitGetAsEntry?.()).filter(Boolean);if(entries.some(x=>x.isDirectory))throw new Error('聊天附件请拖入文件；添加项目文件夹请使用左侧的添加项目。');const files=[...e.dataTransfer.files];if(files.length){await addFiles(files);$('prompt').focus();return}const src=e.dataTransfer.getData('application/x-workbench-image')||e.dataTransfer.getData('text/uri-list').split('\n').find(s=>s&&!s.startsWith('#'));if(src)await attachConversationImage(src)}));
 
 async function showConnectWorkbench(id=state.project){
  const p=state.projects.find(p=>p.id===id);if(!p)return toast('请先选择一个项目',true);
