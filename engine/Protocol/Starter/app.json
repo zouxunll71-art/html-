@@ -17,7 +17,7 @@
       "html": "pages/home/page.html",
       "css": "pages/home/style.css",
       "navigation": {
-        "titleKey": "nav.home"
+        "hidden": true
       }
     }
   ],

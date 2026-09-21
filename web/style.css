@@ -88,3 +88,5 @@ body{position:fixed;inset:0;overflow:hidden;display:grid;grid-template-rows:48px
 .composer-wrap{position:relative;flex:0 0 auto;min-width:0;max-height:55vh;overflow-y:auto;background:#fff}
 .composer-tools{flex-wrap:wrap}.composer-right{margin-left:auto}
 .native-host .canvas-layout{overflow:hidden}
+
+.client-topbar>.preview-mode{flex-shrink:0;white-space:nowrap;gap:0}.preview-mode button{white-space:nowrap}.preview-mode button.selected{color:#243b53;background:white;box-shadow:0 1px 4px #22334418}

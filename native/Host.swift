@@ -13,6 +13,7 @@ final class ClientWebView: WKWebView {
 final class ClientHostController:UIViewController,WKScriptMessageHandler,WKNavigationDelegate,WKUIDelegate, UIDocumentPickerDelegate, UIDropInteractionDelegate {
  let editor=StudioController(),leftPanel=UIView(),rightPanel=UIView()
  var web:ClientWebView!
+ var composerDropRect=CGRect.zero
  var folderDrop=UIView()
  var folderRequest:String?
  var pickerRequest:String?
@@ -23,6 +24,7 @@ final class ClientHostController:UIViewController,WKScriptMessageHandler,WKNavig
   super.viewDidLoad();view.backgroundColor = .white
   let config=WKWebViewConfiguration();config.userContentController.add(self,name:"native")
   web=ClientWebView(frame:.zero,configuration:config);web.navigationDelegate=self;web.uiDelegate=self;web.isOpaque=false;web.backgroundColor = .clear;web.scrollView.backgroundColor = .clear;web.scrollView.isScrollEnabled=false;web.scrollView.bounces=false;web.clipsToBounds=true;web.scrollView.contentInsetAdjustmentBehavior = .never
+  web.addInteraction(UIDropInteraction(delegate:self))
   view.addSubview(leftPanel);view.addSubview(rightPanel);view.addSubview(web)
   folderDrop.isHidden=true;folderDrop.backgroundColor = .clear;folderDrop.isAccessibilityElement=true;folderDrop.accessibilityLabel="选择项目文件夹，也可拖入文件夹";folderDrop.accessibilityTraits = .button;view.addSubview(folderDrop)
   folderDrop.addInteraction(UIDropInteraction(delegate:self));folderDrop.addGestureRecognizer(UITapGestureRecognizer(target:self,action:#selector(pickFolder)))
@@ -44,6 +46,8 @@ final class ClientHostController:UIViewController,WKScriptMessageHandler,WKNavig
   editor.workspace.addSubview(editor.clientPhoneScroll);editor.clientPhoneScroll.backgroundColor = .clear;editor.clientPhoneScroll.delaysContentTouches=false;editor.clientPhoneScroll.canCancelContentTouches=false
   for child in [editor.left,editor.right,editor.leftTitle,editor.rightTitle,editor.leftTools,editor.simulatorTools,editor.androidBack,editor.sourcePageButton,editor.closeWebButton] as [UIView]{editor.clientPhoneScroll.addSubview(child)}
   editor.workspace.bringSubviewToFront(editor.extractionProgress)
+  editor.clientModeChanged={[weak self] running in self?.web.evaluateJavaScript("window.receivePreviewMode?.(\(running))",completionHandler:nil)}
+  editor.clientModeChanged?(editor.running)
   editor.clientShowInspector={[weak self] in self?.web.evaluateJavaScript("window.setClientPanel?.('right','properties')",completionHandler:nil)}
   editor.clientProjectChanged={[weak self] id in
    guard let self=self else{return};self.currentProject=id
@@ -58,6 +62,11 @@ final class ClientHostController:UIViewController,WKScriptMessageHandler,WKNavig
  func userContentController(_ userContentController:WKUserContentController,didReceive message:WKScriptMessage){
   guard message.frameInfo.isMainFrame,let body=message.body as? [String:Any] else{return}
   switch body["action"] as? String {
+  case "previewMode":
+   embed();guard let running=body["running"] as? Bool else{return};editor.mode.selectedSegmentIndex=running ? 1:0;editor.toggleRun()
+  case "copyImage":
+   guard let raw=body["data"] as? String,let comma=raw.firstIndex(of:","),let data=Data(base64Encoded:String(raw[raw.index(after:comma)...])),let image=UIImage(data:data) else{web.evaluateJavaScript("window.imageCopyFinished?.(false)",completionHandler:nil);return}
+   UIPasteboard.general.image=image;web.evaluateJavaScript("window.imageCopyFinished?.(true)",completionHandler:nil)
   case "chooseProjectFolder":
    folderRequest=body["requestId"] as? String;pickFolder()
   case "captureAnnotation":
@@ -72,6 +81,7 @@ final class ClientHostController:UIViewController,WKScriptMessageHandler,WKNavig
     web.evaluateJavaScript("window.receiveAnnotationCapture?.('\(value)')",completionHandler:nil)
    }else{web.evaluateJavaScript("window.receiveAnnotationCapture?.(null)",completionHandler:nil)}
   case "layout":
+   composerDropRect=body["composerDrop"] is [String:Double] ? web.convert(rect(body["composerDrop"]),from:view):.zero
    if let drop=body["projectDrop"] as? [String:Any],let request=drop["requestId"] as? String {
     folderRequest=request;folderDrop.frame=rect(drop.filter{$0.key != "requestId"});folderDrop.isHidden=false
    }else{folderRequest=nil;folderDrop.isHidden=true}
@@ -116,10 +126,24 @@ final class ClientHostController:UIViewController,WKScriptMessageHandler,WKNavig
  }
  func documentPickerWasCancelled(_ controller:UIDocumentPickerViewController){pickerRequest=nil}
  func dropInteraction(_ interaction:UIDropInteraction,canHandle session:UIDropSession)->Bool{
-  return folderRequest != nil && session.hasItemsConforming(toTypeIdentifiers:[UTType.fileURL.identifier])
+  return (interaction.view===folderDrop ? folderRequest != nil : !composerDropRect.isEmpty) && session.hasItemsConforming(toTypeIdentifiers:[UTType.fileURL.identifier])
  }
- func dropInteraction(_ interaction:UIDropInteraction,sessionDidUpdate session:UIDropSession)->UIDropProposal{UIDropProposal(operation:.copy)}
+ func dropInteraction(_ interaction:UIDropInteraction,sessionDidUpdate session:UIDropSession)->UIDropProposal{UIDropProposal(operation:interaction.view===folderDrop || composerDropRect.contains(session.location(in:web)) ? .copy:.forbidden)}
  func dropInteraction(_ interaction:UIDropInteraction,performDrop session:UIDropSession){
+  if interaction.view===web {
+   guard composerDropRect.contains(session.location(in:web)) else{return}
+   guard session.items.count<=6 else{web.evaluateJavaScript("window.composerDropError?.('每次最多附加 6 个文件或文件夹')",completionHandler:nil);return}
+   let group=DispatchGroup();let lock=NSLock();var paths=[Int:String]()
+   for (index,item) in session.items.enumerated(){group.enter();item.itemProvider.loadItem(forTypeIdentifier:UTType.fileURL.identifier,options:nil){value,error in
+    let url:URL?;if let u=value as? URL{url=u}else if let data=value as? Data{url=URL(dataRepresentation:data,relativeTo:nil)}else{url=nil}
+    if let url=url,url.isFileURL{lock.lock();paths[index]=url.path;lock.unlock()};group.leave()
+   }}
+   group.notify(queue:.main){[weak self] in
+    guard let self=self else{return};if paths.count != session.items.count{self.web.evaluateJavaScript("window.composerDropError?.('无法读取拖入文件，请重新拖入')",completionHandler:nil);return}
+    let ordered=paths.keys.sorted().compactMap{paths[$0]};let json=(try? JSONSerialization.data(withJSONObject:ordered)).flatMap{String(data:$0,encoding:.utf8)} ?? "[]"
+    self.web.evaluateJavaScript("window.receiveComposerFiles?.(\(json))",completionHandler:nil)
+   };return
+  }
   guard let request=folderRequest else{return}
   guard session.items.count==1,let provider=session.items.first?.itemProvider else{deliverFolder(nil,request:request,error:"请一次拖入一个项目文件夹。");return}
   provider.loadItem(forTypeIdentifier:UTType.fileURL.identifier,options:nil){[weak self] item,error in

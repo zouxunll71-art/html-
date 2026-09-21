@@ -12,7 +12,7 @@ window.reportNativeLayout = (force=false) => {
   if (!nativeHost) return;
   const bounds = el => { const r = el.getBoundingClientRect(); return {x:r.x,y:r.y,width:r.width,height:r.height}; };
   const layout={ action:'layout', center:bounds(document.querySelector('.canvas-layout')), left:bounds(document.querySelector('.sidebar')), right:bounds(document.querySelector('.chat-panel')), leftMode:leftPanelMode,leftNative:['library','tools'].includes(leftPanelMode),rightNative:rightPanelMode==='properties',preview:!!project()&&project().nativePreview!==false,modal:!!window.imageViewerActive||!!window.annotationActive||$('dialog').open||!$('sidebar-menu').classList.contains('hidden') };
-  const folderDrop=$('project-folder-drop');layout.projectDrop=$('dialog').open&&folderDrop?{...bounds(folderDrop),requestId:folderDrop.dataset.requestId}:null;
+  const folderDrop=$('project-folder-drop');layout.composerDrop=layout.modal?null:bounds(document.querySelector('.composer-wrap'));layout.projectDrop=$('dialog').open&&folderDrop?{...bounds(folderDrop),requestId:folderDrop.dataset.requestId}:null;
   const key=JSON.stringify(layout);if(force===true||key!==lastNativeLayout){lastNativeLayout=key;nativeMessage(layout)}
 };
 window.setClientPanel = (side, mode) => {
@@ -317,7 +317,7 @@ $('composer').onsubmit = attempt(async event => {
 $('prompt').onkeydown = event => { if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); if (!state.running[state.thread]&&!state.remoteRunning[state.thread]) $('composer').requestSubmit(); } };
 $('prompt').oninput = () => { $('prompt').style.height = 'auto'; $('prompt').style.height = Math.min(170, $('prompt').scrollHeight) + 'px'; };
 document.addEventListener('keydown', event => { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'n') { event.preventDefault(); attempt(newThread)(); } });
-function renderAttachments() { $('attachments').innerHTML = state.attachments.map(a => `<div class="attachment">${a.kind==='file'?icon('file-text'):`<button type="button" class="attachment-edit" data-edit="${a.id}" aria-label="标注图片 ${escape(a.name)}"><img src="${a.preview}" alt="${escape(a.name)}"></button>`}<span>${escape(a.name)}</span><button type="button" data-remove="${a.id}" aria-label="移除附件">${icon('x')}</button></div>`).join(''); $('attachments').querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>window.editWorkbenchAttachment(b.dataset.edit)); $('attachments').querySelectorAll('[data-remove]').forEach(b => b.onclick = () => { const a = state.attachments.find(a => a.id === b.dataset.remove); URL.revokeObjectURL(a.preview); state.attachments = state.attachments.filter(a => a.id !== b.dataset.remove); renderAttachments(); }); icons(); }
+function renderAttachments() { $('attachments').innerHTML = state.attachments.map(a => `<div class="attachment">${['file','folder'].includes(a.kind)?icon(a.kind==='folder'?'folder':'file-text'):`<button type="button" class="attachment-edit" data-edit="${a.id}" aria-label="标注图片 ${escape(a.name)}"><img src="${a.preview}" alt="${escape(a.name)}"></button>`}<span>${escape(a.name)}</span>${!a.kind||a.kind==='image'?`<button type="button" data-copy="${a.id}" aria-label="复制图片" title="复制图片">${icon('copy')}</button>`:''}<button type="button" data-remove="${a.id}" aria-label="移除附件">${icon('x')}</button></div>`).join(''); $('attachments').querySelectorAll('[data-copy]').forEach(b=>b.onclick=attempt(()=>copyWorkbenchImage(state.attachments.find(a=>a.id===b.dataset.copy).preview))); $('attachments').querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>window.editWorkbenchAttachment(b.dataset.edit)); $('attachments').querySelectorAll('[data-remove]').forEach(b => b.onclick = () => { const a = state.attachments.find(a => a.id === b.dataset.remove); URL.revokeObjectURL(a.preview); state.attachments = state.attachments.filter(a => a.id !== b.dataset.remove); renderAttachments(); }); icons(); }
 async function addFiles(files) { for (const file of files) { if(file.size>16*1024*1024)throw new Error('每个文件不能超过 16 MB'); if (state.attachments.length >= 6) throw new Error('每次最多附加 6 个文件'); const data = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(file); }); const result = await api('/api/upload', { data, name: file.name }); state.attachments.push({ ...result, preview: URL.createObjectURL(file) }); renderAttachments(); } }
 $('attach').onclick = () => $('file-input').click(); $('file-input').onchange = attempt(async () => { await addFiles($('file-input').files); $('file-input').value = ''; });
 $('prompt').addEventListener('paste', attempt(async event => { const images = [...(event.clipboardData?.files || [])]; if (images.length) { event.preventDefault(); await addFiles(images); } }));
@@ -366,7 +366,7 @@ async function refreshEditor(force = false) {
   if (!state.project || refreshBusy) return; refreshBusy = true;
   try {
     const s = await studio('/status'); state.editing = s.editing;
-    $('edit-mode').classList.toggle('selected', s.editing); $('run-mode').classList.toggle('selected', !s.editing);
+    window.receivePreviewMode(!s.editing);
     const issue = s.error || (s.conflicts.length ? `${s.conflicts.length} 处同步冲突` : '');
     $('sync-status').innerHTML = `<span class="status-dot"></span>${issue ? '同步需处理' : '已同步'}`; $('sync-status').classList.toggle('error', !!issue); $('sync-status').title = issue || 'HTML 与 iOS 保持同步';
     if (s.active !== previewId()) { $('sync-status').title = '其他窗口切换了项目，请重新选择当前项目'; return; }
@@ -581,7 +581,7 @@ $('messages').addEventListener('dragstart',e=>{const img=e.target.closest('img')
 const dropArea=document.querySelector('.composer-wrap');
 dropArea.addEventListener('dragover',e=>{e.preventDefault();e.dataTransfer.dropEffect='copy';dropArea.classList.add('image-drop-target')});
 dropArea.addEventListener('dragleave',e=>{if(!dropArea.contains(e.relatedTarget))dropArea.classList.remove('image-drop-target')});
-dropArea.addEventListener('drop',attempt(async e=>{e.preventDefault();e.stopPropagation();dropArea.classList.remove('image-drop-target');const entries=[...e.dataTransfer.items].map(i=>i.webkitGetAsEntry?.()).filter(Boolean);if(entries.some(x=>x.isDirectory))throw new Error('聊天附件请拖入文件；添加项目文件夹请使用左侧的添加项目。');const files=[...e.dataTransfer.files];if(files.length){await addFiles(files);$('prompt').focus();return}const src=e.dataTransfer.getData('application/x-workbench-image')||e.dataTransfer.getData('text/uri-list').split('\n').find(s=>s&&!s.startsWith('#'));if(src)await attachConversationImage(src)}));
+dropArea.addEventListener('drop',attempt(async e=>{e.preventDefault();e.stopPropagation();dropArea.classList.remove('image-drop-target');const entries=[...e.dataTransfer.items].map(i=>i.webkitGetAsEntry?.()).filter(Boolean);if(nativeHost&&[...e.dataTransfer.types].includes('Files'))return;if(entries.some(x=>x.isDirectory)){const paths=e.dataTransfer.getData('text/uri-list').split('\n').filter(x=>x.startsWith('file:'));if(paths.length){await window.receiveComposerFiles(paths);return}throw new Error('浏览器不能提供文件夹的本机路径，请在桌面应用中拖入。');}const files=[...e.dataTransfer.files];if(files.length){await addFiles(files);$('prompt').focus();return}const src=e.dataTransfer.getData('application/x-workbench-image')||e.dataTransfer.getData('text/uri-list').split('\n').find(s=>s&&!s.startsWith('#'));if(src)await attachConversationImage(src)}));
 
 async function showConnectWorkbench(id=state.project){
  const p=state.projects.find(p=>p.id===id);if(!p)return toast('请先选择一个项目',true);
@@ -600,3 +600,20 @@ function showRemoveProject(id){
 }
 
 $('messages').addEventListener('click',e=>{const link=e.target.closest('a');const match=link?.getAttribute('href')?.match(/^\/api\/conversation-file\/([a-f0-9-]+)$/);if(!match)return;e.preventDefault();e.stopPropagation();attempt(()=>api('/api/conversation-file/reveal',{id:match[1]}))()},true);
+
+window.receiveComposerFiles=attempt(async paths=>{
+ if(state.attachments.length+paths.length>6)throw new Error('每次最多附加 6 个文件或文件夹');
+ const result=await api('/api/attachment/local',{paths});state.attachments.push(...result.attachments);renderAttachments();$('prompt').focus();window.reportNativeLayout();
+});
+window.composerDropError=message=>toast(message,true);
+window.imageCopyFinished=ok=>toast(ok?'图片已复制到电脑剪贴板':'图片复制失败',!ok);
+async function copyWorkbenchImage(src){
+ const response=await fetch(src);if(!response.ok)throw new Error('图片读取失败');const blob=await response.blob();
+ if(window.webkit?.messageHandlers?.native){const data=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=reject;reader.readAsDataURL(blob)});nativeMessage({action:'copyImage',data});}
+ else{const bitmap=await createImageBitmap(blob),canvas=document.createElement('canvas');canvas.width=bitmap.width;canvas.height=bitmap.height;canvas.getContext('2d').drawImage(bitmap,0,0);bitmap.close();const png=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));await navigator.clipboard.write([new ClipboardItem({'image/png':png})]);window.imageCopyFinished(true);}
+}
+const copyViewer=document.createElement('button');copyViewer.type='button';copyViewer.textContent='复制图片';copyViewer.onclick=attempt(()=>copyWorkbenchImage(viewerSource));imageViewer.querySelector('.viewer-controls').append(copyViewer);
+for(const container of [$('attachments'),$('messages')])container.addEventListener('contextmenu',e=>{const img=e.target.closest('img');if(!img)return;e.preventDefault();showSidebarMenu(img,[{label:'复制图片',icon:'copy',run:()=>copyWorkbenchImage(img.src)}])});
+
+window.receivePreviewMode=running=>{state.editing=!running;for(const [id,selected] of [['top-edit-mode',!running],['top-run-mode',running],['edit-mode',!running],['run-mode',running]]){$(id).classList.toggle('selected',selected);$(id).setAttribute('aria-pressed',String(selected))}};
+for(const [id,running] of [['top-edit-mode',false],['top-run-mode',true]])$(id).onclick=attempt(async()=>{if(!project()||project().nativePreview===false){toast('请先选择已接入工作台的项目');return}if(nativeHost)nativeMessage({action:'previewMode',running});else await setMode(!running)});

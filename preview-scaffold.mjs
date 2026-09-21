@@ -28,6 +28,7 @@ shutil.copytree(system/'Protocol/Starter',stage,dirs_exist_ok=True)
 app=json.loads((stage/'app.json').read_text())
 app['id']='app-'+uuid.uuid4().hex[:12]
 app['name']=name[:100] or 'New App'
+for page in app['pages']:page['navigation']={'hidden':True}
 (stage/'app.json').write_text(json.dumps(app,ensure_ascii=False,indent=2))
 for rel in ['assets/shared','assets/pages/home','assets/fonts','components']:(stage/rel).mkdir(parents=True,exist_ok=True)
 authoring.install(stage)
