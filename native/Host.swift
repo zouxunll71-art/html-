@@ -68,6 +68,8 @@ final class ClientHostController:UIViewController,WKScriptMessageHandler,WKNavig
     let p=browser.convert(point,from:view),dy=command["dy"] as? Double ?? 0
     browser.evaluateJavaScript("(()=>{let e=document.elementFromPoint(\(p.x),\(p.y));if(!e)return;if('\(kind)'==='scroll'){while(e&&e.scrollHeight<=e.clientHeight)e=e.parentElement;(e||document.scrollingElement).scrollBy(0,\(dy))}else{e.focus?.();e.click?.()}})()",completionHandler:nil);return
    }
+   if kind=="click",let canvas=current as? ClientCanvasScrollView,hit === canvas{canvas.onBackgroundTap?();return}
+   if kind=="click",let workspace=current as? StudioWorkspace,hit === workspace{workspace.onBackgroundTap?();return}
    if kind=="scroll",let scroll=current as? UIScrollView{let dy=command["dy"] as? Double ?? 0;scroll.setContentOffset(CGPoint(x:scroll.contentOffset.x,y:max(0,min(scroll.contentSize.height-scroll.bounds.height,scroll.contentOffset.y+dy))),animated:false);return}
    if kind=="click",let field=current as? UITextField{field.becomeFirstResponder();return}
    if kind=="click",let button=current as? UIButton{button.sendActions(for:.touchUpInside);return}
@@ -103,6 +105,7 @@ final class ClientHostController:UIViewController,WKScriptMessageHandler,WKNavig
   for child in [editor.toolbar,editor.mode,editor.copyButton,editor.syncStateLabel,editor.repairSyncButton,editor.runIOSButton,editor.editingTools] as [UIView]{editor.clientToolsScroll.addSubview(child)}
   editor.editingTools.axis = .vertical
   for child in [editor.inspector,editor.sourceBrowser,editor.iosBrowser,editor.inspectorTabs] as [UIView]{rightPanel.addSubview(child)}
+  editor.clientPhoneScroll.onBackgroundTap={[weak self] in self?.editor.workspace.onBackgroundTap?()}
   editor.workspace.addSubview(editor.clientPhoneScroll);editor.clientPhoneScroll.backgroundColor = .clear;editor.clientPhoneScroll.delaysContentTouches=false;editor.clientPhoneScroll.canCancelContentTouches=false
   for child in [editor.left,editor.right,editor.leftTitle,editor.rightTitle,editor.leftTools,editor.simulatorTools,editor.androidBack,editor.sourcePageButton,editor.closeWebButton] as [UIView]{editor.clientPhoneScroll.addSubview(child)}
   editor.workspace.bringSubviewToFront(editor.extractionProgress)

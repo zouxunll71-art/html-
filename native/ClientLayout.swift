@@ -1,5 +1,14 @@
 import UIKit
 
+final class ClientCanvasScrollView:UIScrollView,UIGestureRecognizerDelegate {
+ var onBackgroundTap:(()->Void)?
+ override init(frame:CGRect){super.init(frame:frame);installBackgroundTap()}
+ required init?(coder:NSCoder){super.init(coder:coder);installBackgroundTap()}
+ private func installBackgroundTap(){let tap=UITapGestureRecognizer(target:self,action:#selector(clearBackgroundSelection));tap.cancelsTouchesInView=false;tap.delegate=self;addGestureRecognizer(tap)}
+ func gestureRecognizer(_ gestureRecognizer:UIGestureRecognizer,shouldReceive touch:UITouch)->Bool{return touch.view === self}
+ @objc private func clearBackgroundSelection(){onBackgroundTap?()}
+}
+
 extension StudioController {
  func layoutClientWorkspace() {
   let w=view.bounds.width,h=view.bounds.height
