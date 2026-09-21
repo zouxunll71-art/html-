@@ -100,7 +100,7 @@ final class StudioController:UIViewController,UITableViewDataSource,UITableViewD
  }
  override func viewDidLayoutSubviews(){super.viewDidLayoutSubviews();layoutWorkspaceDesign()}
  @objc func searchChanged(){reloadCatalog()}
- func setStatus(_ s:String){statusHoldUntil=Date().addingTimeInterval(4);statusMessage=s;footer.text="  \(s)";let running=bulkRunning || snapshotBusy || splashRequestBusy || buildTimer?.isValid==true;progressDismissTimer?.invalidate();if running || s.hasPrefix("正在"){extractionProgress.show(s)}else if !extractionProgress.isHidden{extractionProgress.show(s,running:false);progressDismissTimer=Timer.scheduledTimer(withTimeInterval:5,repeats:false){[weak self]_ in self?.extractionProgress.isHidden=true}}}
+ func setStatus(_ s:String){statusHoldUntil=Date().addingTimeInterval(4);statusMessage=s;footer.text="  \(s)";let running=bulkRunning || snapshotBusy || splashRequestBusy || buildTimer?.isValid==true;progressDismissTimer?.invalidate();if running || s.hasPrefix("正在"){extractionProgress.show(s)}else if !extractionProgress.isHidden{extractionProgress.show(s,running:false);progressDismissTimer=Timer.scheduledTimer(withTimeInterval:1.5,repeats:false){[weak self]_ in self?.extractionProgress.isHidden=true}}}
  func error(_ e:Error){setStatus(e.localizedDescription);hint.text=e.localizedDescription}
  var projectLoadRetries=0
  func loadProjects(){Bridge.shared.request("/projects"){[weak self]r in
