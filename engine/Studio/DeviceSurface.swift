@@ -52,7 +52,10 @@ final class DeviceSurface:UIView,UIKeyInput,UIDragInteractionDelegate,UIDropInte
  override func touchesBegan(_ touches:Set<UITouch>,with event:UIEvent?){
   if simulatorDirect,let touch=touches.first{
    let point=touch.location(in:self);guard screenRect.contains(point)else{return}
-   becomeFirstResponder();cancelSimulatorGesture();sourceTouch=true;dragStart=logical(point);onPointer?("down",dragStart);return
+   let inputPoint=logical(point),map=Dictionary(nodes.map{($0.id,$0)},uniquingKeysWith:{_,last in last})
+   let overInput=nodes.contains{["nativeTextField","nativeTextView"].contains($0.type) && !$0.hidden && $0.frame.contains(inputPoint) && clippingRect(for:$0,map:map).contains(inputPoint)}
+   if overInput{becomeFirstResponder()}else{resignFirstResponder()}
+   cancelSimulatorGesture();sourceTouch=true;dragStart=logical(point);onPointer?("down",dragStart);return
   }
   if (!isSource || !operate),let touch=touches.first{pointerOrigin=logical(touch.location(in:self));if operate && !isSource{operateOrigin=pointerOrigin;operatePanHandled=false}}
   guard isSource && operate,let touch=touches.first else{super.touchesBegan(touches,with:event);return}

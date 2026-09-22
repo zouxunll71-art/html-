@@ -74,6 +74,11 @@ static void Command(NSDictionary *command){
  if([kind isEqual:@"text"]){
   Release();NSString *text=command[@"text"];
   if(![text isKindOfClass:NSString.class] || text.length>16384)Fail(@"Invalid text");
+  // Numeric edits use the persistent HID connection, not a subprocess per digit.
+  NSCharacterSet *numeric=[NSCharacterSet characterSetWithCharactersInString:@"0123456789.-"];
+  if(text.length && [text rangeOfCharacterFromSet:numeric.invertedSet].location==NSNotFound){
+   for(NSUInteger i=0;i<text.length;i++){unichar c=[text characterAtIndex:i];int code=c=='0'?39:c=='.'?55:c=='-'?45:30+(c-'1');Key(code,1);Key(code,2);}return;
+  }
   // Address the dedicated simulator pasteboard; do not write to NSPasteboard here.
   NSTask *task=[NSTask new];task.executableURL=[NSURL fileURLWithPath:@"/usr/bin/xcrun"];task.arguments=@[@"simctl",@"pbcopy",DeviceID];
   task.environment=NSProcessInfo.processInfo.environment;NSPipe *pipe=NSPipe.pipe;task.standardInput=pipe;task.standardOutput=NSFileHandle.fileHandleWithNullDevice;task.standardError=NSFileHandle.fileHandleWithNullDevice;

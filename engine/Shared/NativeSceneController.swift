@@ -7,8 +7,9 @@ final class NativeSceneController:UIViewController,UIScrollViewDelegate,UITextFi
  var layoutConstraints:[String:[NSLayoutConstraint]]=[:];var contentConstraints:[String:[NSLayoutConstraint]]=[:];var layingOut=false;var renderedWidth:CGFloat = -1;var layoutSize=CGSize.zero
  let fonts=NativeTypography();var scrollWork:[String:DispatchWorkItem]=[:];var localScrollUntil:[String:TimeInterval]=[:]
  override func viewDidLoad(){super.viewDidLoad();view.backgroundColor = .white;let tap=UITapGestureRecognizer(target:self,action:#selector(dismissKeyboard));tap.cancelsTouchesInView=false;tap.delegate=self;view.addGestureRecognizer(tap)}
- func gestureRecognizer(_ gestureRecognizer:UIGestureRecognizer,shouldReceive touch:UITouch)->Bool{var target=touch.view;while let item=target{if item is UIControl || item is UITextView{return false};target=item.superview};return true}
- @objc func dismissKeyboard(){view.endEditing(true)}
+ func gestureRecognizer(_ gestureRecognizer:UIGestureRecognizer,shouldReceive touch:UITouch)->Bool{var target=touch.view;while let item=target{if item is UITextField || item is UITextView{return false};target=item.superview};return true}
+ func gestureRecognizer(_ gestureRecognizer:UIGestureRecognizer,shouldRecognizeSimultaneouslyWith otherGestureRecognizer:UIGestureRecognizer)->Bool{true}
+ @objc func dismissKeyboard(){view.window?.endEditing(true)}
  func number(_ d:[String:Any],_ key:String,_ fallback:CGFloat=0)->CGFloat{(d[key] as? NSNumber).map{CGFloat(truncating:$0)} ?? fallback}
  func apply(_ page:[String:Any],animated:Bool=true) {
   loadViewIfNeeded()

@@ -28,9 +28,10 @@ final class SimulatorInput {
  }
  func enqueue(_ event:[String:Any]){
   guard ready else{return}
-  if event["kind"] as? String=="move",events.last?["kind"] as? String=="move"{events[events.count-1]=event}else{events.append(event)}
+  if event["kind"] as? String=="text",let text=event["text"] as? String,events.last?["kind"] as? String=="text",let prior=events.last?["text"] as? String,(prior+text).count<=16384{events[events.count-1]["text"]=prior+text}
+  else if event["kind"] as? String=="move",events.last?["kind"] as? String=="move"{events[events.count-1]=event}else{events.append(event)}
   guard events.count<=64 else{recover("模拟器响应过慢，已松开触点并清理积压");return}
-  if event["kind"] as? String != "move"{pump();return}
+  if !["move","text"].contains(event["kind"] as? String ?? ""){pump();return}
   guard !scheduled else{return};scheduled=true
   DispatchQueue.main.asyncAfter(deadline:.now()+1.0/60){[weak self] in self?.scheduled=false;self?.pump()}
  }
