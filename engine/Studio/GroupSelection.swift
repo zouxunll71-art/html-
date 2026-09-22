@@ -22,7 +22,7 @@ extension StudioController {
   refreshSelection();if browsing{refreshIOSBrowser(focus:id)}
  }
  func selectRegion(_ rect:CGRect){
-  guard let page=page else{return};var ids=Set(page.nodes.filter{$0.hasVisibleSelectionContent && rect.insetBy(dx:-1,dy:-1).contains($0.selectionBounds) && !left.clippingRect(for:$0,map:Dictionary(page.nodes.map{($0.id,$0)},uniquingKeysWith:{_,last in last})).intersection($0.selectionBounds).isEmpty}.map(\.id))
+  guard let page=page else{return};var ids=Set(page.nodes.filter{$0.hasVisibleSelectionContent && rect.insetBy(dx:-1,dy:-1).contains(left.displayBounds($0)) && !left.clippingRect(for:$0,map:Dictionary(page.nodes.map{($0.id,$0)},uniquingKeysWith:{_,last in last})).intersection(left.displayBounds($0)).isEmpty}.map(\.id))
   let groups=Set(page.nodes.filter{ids.contains($0.id) && !$0.groupID.isEmpty}.map(\.groupID))
   ids.formUnion(page.nodes.filter{groups.contains($0.groupID) && !$0.hidden && !$0.locked}.map(\.id))
   selected=ids.sorted().first;multiSelection=ids;setTool("select");refreshSelection();setStatus("已选中 \(ids.count) 个图层，点击「组合」后可整体移动")

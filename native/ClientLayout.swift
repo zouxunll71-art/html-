@@ -64,6 +64,7 @@ extension StudioController {
   closeWebButton.frame=CGRect(x:start+pw-80,y:0,width:80,height:22);if !closeWebButton.isHidden{leftTitle.frame.size.width=max(0,pw-82)}
   left.frame=CGRect(x:start,y:26,width:pw,height:ph);right.frame=CGRect(x:start+pw+gap,y:26,width:pw,height:ph);web.frame=right.bounds
   leftTools.frame=CGRect(x:start,y:left.frame.maxY+5,width:pw,height:30);simulatorTools.frame=leftTools.frame
+  splashButton.isHidden=false;splashButton.isEnabled=project != nil
   androidBack.frame=CGRect(x:right.frame.minX,y:right.frame.maxY+5,width:pw*0.4,height:30);sourcePageButton.frame=CGRect(x:right.frame.minX+pw*0.4,y:right.frame.maxY+5,width:pw*0.6,height:30)
   hint.frame=CGRect(x:12,y:hh-25,width:cw-24,height:22);hint.font = .systemFont(ofSize:10);hint.numberOfLines=1
   extractionProgress.frame=CGRect(x:max(12,(cw-420)/2),y:36,width:min(420,cw-24),height:70);syncLabel.isHidden=true

@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import host_export
+import export_policy
+from source_watch import signature
 import json,os,time,uuid,hashlib,threading,subprocess,shutil,mimetypes,copy,traceback,sys,signal,atexit
 from pathlib import Path
 from http.server import ThreadingHTTPServer,BaseHTTPRequestHandler
@@ -36,7 +38,7 @@ def eng(op,**args):
   if key:ENGINE_MODEL_KEY=key
  if 'error'in reply:raise ValueError(reply['error'])
  return reply['ok']
-def atomic(p,v):p.parent.mkdir(parents=True,exist_ok=True);t=p.with_suffix('.tmp');t.write_text(json.dumps(v,ensure_ascii=False,indent=2));t.replace(p)
+def atomic(p,v,compact=False):p.parent.mkdir(parents=True,exist_ok=True);t=p.with_suffix('.tmp');t.write_text(json.dumps(v,ensure_ascii=False,**({'separators':(',',':')} if compact else {'indent':2})));t.replace(p)
 def folder(pid):
  if not isinstance(pid,str) or not all(c in '0123456789abcdef-' for c in pid):raise ValueError('无效项目 ID')
  p=STORE/pid
@@ -59,7 +61,7 @@ def project(r):
   temp={**r,'sessions':{'ios':session}};out=eng('editor',frame=frame(temp));out['paintOrderVersion']=1;pages.append(out)
  current=eng('editor',frame=frame(r));pages=[current if p['id']==current['id'] else p for p in pages]
  return dict(schemaVersion=1,id=r['id'],name=r['model']['name'],sourcePath=r['source'],package='',assets=r['model']['assets'],pages=pages,pageCandidates=[],updated=r['updated'],importMode='html',selectionColor=r.get('selectionColor','#147DF5'),compileRevision=r['model']['hash'])
-def store(r):atomic(STORE/r['id']/'record.json',r)
+def store(r):atomic(STORE/r['id']/'record.json',r,compact=True)
 def publish_assets(r):
  d=STORE/r['id']/'assets';d.mkdir(parents=True,exist_ok=True)
  for a in r['model']['assets']:
@@ -121,6 +123,7 @@ def update_edits(persist,body):
    nid=edited['id'];old=basemap.get(nid)
    if old is None:diffs[nid]=edited;continue
    delta={k:v for k,v in edited.items() if k not in ignored and (k not in old or v!=old.get(k) or isinstance(v,bool)!=isinstance(old.get(k),bool))}
+   delta=export_policy.meaningful_patch(delta,old)
    if delta:diffs[nid]=delta
   edited_ids={n['id'] for n in edit['nodes']}
   for nid in basemap:
@@ -186,6 +189,7 @@ def event(body):
     store(r);bump();return {'revision':REV}
   if decl is None or decl.get('disabled'):raise ValueError('图层不可交互或已失效')
   e={**decl,'value':e.get('value')}
+ if e.get('preview') and not EDITING:raise ValueError('请先切换到选取与编辑模式')
  s=eng('event',model=r['model'],session=s,event=e)
  r['sessions'][side]=s
  if LINKED:r['sessions']['web' if side=='ios' else 'ios']=copy.deepcopy(s)
@@ -216,7 +220,7 @@ def runtime(side,known_project='',known_model=''):
  return result
 def export(r,progress=lambda stage,percent:None):
  progress("检查本地化、动作与路由",5)
- if r['conflicts']:raise ValueError('请先解决 iOS 冲突再导出')
+ r,resolution=export_policy.prepare(r)
  issues=ios_rules.export_issues(r)
  if issues:raise ValueError('导出规则检查未通过：\n'+'\n'.join(issues[:12]))
  fresh=compile_project(r['source'])
@@ -228,6 +232,7 @@ def export(r,progress=lambda stage,percent:None):
  name=''.join(c if c not in '/\\:' else '-' for c in r['model']['name']).strip('. ') or 'NativeApp'
  source=Path(r['source']).resolve()
  bundle=source.parent if source.name=='HTML' and source.parent.name=='HTMLNativeStudio' else source if source.name=='HTMLNativeStudio' else source/'HTMLNativeStudio'
+ bundle=host_export.resolve_bundle(bundle)
  host_plan=host_export.inspect(bundle)
  (bundle/'iOS').mkdir(parents=True,exist_ok=True)
  if source != bundle/'HTML' and not (bundle/'HTML').exists():
@@ -238,6 +243,7 @@ def export(r,progress=lambda stage,percent:None):
  try:
   progress('生成原生工程和语言文件',30)
   target=ios_export.prepare(r,staging,ROOT,folder(r['id'])/'assets',progress)
+  atomic(staging/'IOSExportResolution.json',resolution)
   progress('写入 Xcode 工程与导出清单',90)
   subprocess.run(['/usr/bin/python3',str(ROOT/'scripts/make_project.py'),str(staging),target,'App','Shared'],check=True,env={**os.environ,'STUDIO_BUNDLE_ID':'local.htmlnative.export.p'+hashlib.sha256(r['model']['id'].encode()).hexdigest()[:16],'STUDIO_MIN_IOS':'15.0','STUDIO_NATIVE_EXPORT':'1'})
   (staging/'README.md').write_text('Open '+target+'.xcodeproj. UIKit renders all declared pages and dialogs. Native navigation, actions, localization and image assets are included. No studio connection is required. Check ExportInventory.json for the complete inventory. This export has not been built automatically.\n')
@@ -258,12 +264,6 @@ def finish_ios_run(pid):
   if LINKED:r['sessions']['ios']=copy.deepcopy(r['sessions']['web']);store(r)
   ACK.clear();bump();return {'revision':REV,'linked':LINKED}
 
-def signature(root):
- out=[]
- for p in root.rglob('*'):
-  if any(part in ['.git','node_modules','ios-overrides','.studio','build'] for part in p.relative_to(root).parts):continue
-  if p.is_file():st=p.stat();out.append((str(p),st.st_mtime_ns,st.st_ctime_ns,st.st_ino,st.st_size))
- return hashlib.sha256(repr(sorted(out)).encode()).hexdigest()
 def watch():
  while True:
   time.sleep(.25)
@@ -281,8 +281,8 @@ def watch():
    with LOCK:ERROR=str(e)
 class Handler(BaseHTTPRequestHandler):
  def log_message(self,*a):pass
- def respond(self,value,code=200,mime='application/json'):
-  raw=value if isinstance(value,bytes) else json.dumps(value,ensure_ascii=False).encode();self.send_response(code);self.send_header('Content-Type',mime);self.send_header('Content-Length',str(len(raw)));self.send_header('Cache-Control','no-store');self.end_headers();self.wfile.write(raw)
+ def respond(self,value,code=200,mime='application/json',cache='no-store'):
+  raw=value if isinstance(value,bytes) else json.dumps(value,ensure_ascii=False).encode();self.send_response(code);self.send_header('Content-Type',mime);self.send_header('Content-Length',str(len(raw)));self.send_header('Cache-Control',cache);self.end_headers();self.wfile.write(raw)
  def do_GET(self):self.handle_request()
  def do_POST(self):self.handle_request()
  def handle_request(self):
@@ -362,14 +362,18 @@ class Handler(BaseHTTPRequestHandler):
     # Disk IO, resizing and network writes must not hold the editor state lock.
     name=q['id'][0];base=folder(q['project'][0]);p=(base/'assets'/name).resolve()
     if not p.is_relative_to((base/'assets').resolve()):raise ValueError('Invalid asset')
-    if 'thumbnail' in q:return self.respond(asset_thumbnails.thumbnail(p,base/'thumbnails',int(q['thumbnail'][0])),mime='image/png')
-    return self.respond(p.read_bytes(),mime=mimetypes.guess_type(p.name)[0] or 'application/octet-stream')
+    cache='private, max-age=31536000, immutable' if len(p.stem)==16 and all(c in '0123456789abcdef' for c in p.stem) else 'no-store'
+    if 'thumbnail' in q:return self.respond(asset_thumbnails.thumbnail(p,base/'thumbnails',int(q['thumbnail'][0])),mime='image/png',cache=cache)
+    return self.respond(p.read_bytes(),mime=mimetypes.guess_type(p.name)[0] or 'application/octet-stream',cache=cache)
    if path=='/conversion-audit':
     with LOCK:r=read(q['id'][0])
     return self.respond(conversion_audit.inspect_project(r,STORE/r['id']/'assets',eng))
    with LOCK:
     if path=='/health':return self.respond({'ok':True,'root':str(ROOT),'version':SERVICE_VERSION})
-    if path=='/projects':return self.respond([project(json.loads(p.read_text())) for p in sorted(STORE.glob('*/record.json'),key=lambda p:p.stat().st_mtime,reverse=True)])
+    if path=='/projects':
+     records=[json.loads(p.read_text()) for p in sorted(STORE.glob('*/record.json'),key=lambda p:p.stat().st_mtime,reverse=True)]
+     if q.get('summary',[''])[0]=='1':return self.respond([dict(id=r['id'],name=r['model']['name'],sourcePath=r['source'],updated=r['updated'],compileRevision=r['model']['hash'],pages=[dict(id=pid,name=p.get('name',pid)) for pid,p in r['model']['pages'].items()]) for r in records])
+     return self.respond([project(r) for r in records])
     if path=='/import':return self.respond(import_project(body['path']))
     if path=='/new':
      dest=authoring.new_project(body.get('name'));return self.respond(import_project(str(dest)))
@@ -381,7 +385,9 @@ class Handler(BaseHTTPRequestHandler):
     if path=='/restore-mode':
      if self.command!='POST':raise ValueError('POST required')
      LINKED=bool(body.get('linked',True));EDITING=bool(body.get('editing',True));bump();return self.respond({'ok':True})
-    if path=='/status':return self.respond(dict(revision=REV,error=ERROR,active=ACTIVE,linked=LINKED,editing=EDITING,ack=ACK,conflicts=read(ACTIVE)['conflicts'] if ACTIVE else [],simulatorFrames=IOS_FRAMES.status()))
+    if path=='/status':
+     active_record=read(ACTIVE) if ACTIVE else None
+     return self.respond(dict(revision=REV,error=ERROR,active=ACTIVE,linked=LINKED,editing=EDITING,editingPage=active_record['sessions']['ios'].get('editingPage') if active_record else None,ack=ACK,conflicts=active_record['conflicts'] if active_record else [],simulatorFrames=IOS_FRAMES.status()))
     if path=='/editor-state':
      if q['id'][0]!=ACTIVE:raise ValueError('项目已切换')
      r=read(ACTIVE);current=frame(r);current['browserOpen']=BROWSER_OPEN.get(ACTIVE,False);current['chromeHitTargets']=CHROME_TARGETS.get((ACTIVE,current['id']),[])
@@ -445,12 +451,19 @@ class Handler(BaseHTTPRequestHandler):
       EDITING=bool(body['editing'])
       if EDITING:IOS_INPUT.close()
       if EDITING and BROWSER_OPEN.get(ACTIVE):CLOSE_BROWSER.add(ACTIVE)
+      if not EDITING and ACTIVE:
+       for side in ('ios','web'):
+        page=read(ACTIVE)['sessions'][side].get('editingPage')
+        if page:event({'side':side,'projectID':ACTIVE,'event':{'type':'navigate','page':page}})
      bump();return self.respond({'ok':True})
     if path=='/reset':
      r=read(ACTIVE);model=compile_project(r['source']);atomic(folder(ACTIVE)/'versions'/f'{time.time_ns()}.json',r);r['model']=model;r['sessions']=sessions(model);r['effectAcks']={};store(r);ERROR='';bump();return self.respond({'ok':True})
     if path=='/preview':return self.respond(update_edits(False,body))
     if path=='/save':return self.respond(update_edits(True,body))
     if path=='/conflict':
+     if body.get('projectID',ACTIVE)!=ACTIVE:raise ValueError('项目已切换，请重新打开冲突列表')
+     if body.get('choice') not in ('ios','html'):raise ValueError('无效冲突处理选项')
+     if not any(c['key']==body.get('key') and c['field']==body.get('field') for c in read(ACTIVE)['conflicts']):raise ValueError('此冲突已变化或已处理，请重新打开列表')
      r=read(ACTIVE);key=body['key'];field=body['field'];v=r['overrides'][key];base=all_base_nodes(r).get(key)
      if body['choice']=='html':
       if field=='*':r['overrides'].pop(key)

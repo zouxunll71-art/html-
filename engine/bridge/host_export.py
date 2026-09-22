@@ -6,6 +6,36 @@ def digest(path):return hashlib.sha256(path.read_bytes()).hexdigest()
 def inventory(root):
  if any(p.is_symlink() for p in root.rglob('*')):raise ValueError('导出目录不允许符号链接')
  return {str(p.relative_to(root)):digest(p) for p in root.rglob('*') if p.is_file()}
+
+def resolve_bundle(bundle):
+ bundle=Path(bundle).resolve();binding=bundle/'iOS/export-target.json'
+ if not binding.exists():return bundle
+ if binding.is_symlink():raise ValueError('导出目标关联不能是符号链接')
+ value=json.loads(binding.read_text());project=Path(value.get('project',''))
+ if not project.is_absolute() or project.suffix!='.xcodeproj' or not project.is_dir() or project.is_symlink():raise ValueError('关联的 Xcode 导出目标不存在，请重新指定，未更新外层工程')
+ target=project.parent/'HTMLNativeStudio'
+ if target.is_symlink() or not target.is_dir():raise ValueError('关联工程缺少 HTMLNativeStudio 工作区')
+ return target.resolve()
+
+def owned_files_match(bundle,target,old):
+ current=inventory(target/'StudioGenerated')
+ if current.keys()!=old['files'].keys():return False
+ for name,expected in old['files'].items():
+  if current[name]==expected:continue
+  if not name.endswith('.xcstrings'):return False
+  exported=(bundle/old['export']).resolve()
+  if not exported.is_relative_to(bundle.resolve()):return False
+  original=next((exported/folder/name for folder in ('App','Shared') if (exported/folder/name).is_file()),None)
+  if original is None or digest(original)!=expected:return False
+  def semantic(path):
+   obj=json.loads(path.read_text())
+   for item in obj.get('strings',{}).values():item.pop('extractionState',None)
+   return obj
+  try:
+   if semantic(original)!=semantic(target/'StudioGenerated'/name):return False
+  except (ValueError,TypeError,AttributeError):return False
+ return True
+
 def inspect(bundle):
  bundle=Path(bundle).resolve();outer=bundle.parent
  projects=list(outer.glob('*.xcodeproj')) if bundle.name=='HTMLNativeStudio' else []
@@ -28,7 +58,7 @@ def inspect(bundle):
  if entry.is_symlink() or pbx.is_symlink():raise ValueError('导出入口不能是符号链接')
  if old:
   if old['target']!=target.name:raise ValueError('导出目标已变化，请先检查外层工程')
-  if digest(entry)!=old['entryHash'] or inventory(target/'StudioGenerated')!=old['files']:raise ValueError('外层生成代码已被手动修改；为保留修改，本次未覆盖。请先将改动合并回工作区')
+  if digest(entry)!=old['entryHash'] or not owned_files_match(bundle,target,old):raise ValueError('外层生成代码已被手动修改；为保留修改，本次未覆盖。请先将改动合并回工作区')
  else:
   if (target/'StudioGenerated').exists():raise ValueError('外层 StudioGenerated 已存在，不能覆盖未知文件')
   if not entry.is_file():raise ValueError('当前自动接入支持 UIKit Storyboard 空工程（ViewController.swift）；未修改外层工程')
@@ -61,7 +91,7 @@ def migrate(plan,exported,prefix):
   entry=scratch/'ViewController.swift';entry.write_text('import UIKit\n\n// Generated only by explicit HTML Native Studio export.\nfinal class ViewController: '+prefix+'NativeRuntimeController {}\n')
   files=inventory(generated)
   if digest(plan['pbx'])!=plan['pbxHash'] or digest(plan['entry'])!=plan['entryHash']:raise ValueError('外层工程在导出期间发生变化，已停止迁移')
-  if plan['old'] and inventory(target/'StudioGenerated')!=plan['old']['files']:raise ValueError('生成目录在导出期间发生变化，已停止迁移')
+  if plan['old'] and not owned_files_match(bundle,target,plan['old']):raise ValueError('生成目录在导出期间发生变化，已停止迁移')
   if not plan['old'] and (target/'StudioGenerated').exists():raise ValueError('生成目录刚被创建，已停止迁移')
   backup=bundle/'iOS/HostBackups'/uuid.uuid4().hex;backup.mkdir(parents=True)
   shutil.copy2(plan['entry'],backup/'ViewController.swift')

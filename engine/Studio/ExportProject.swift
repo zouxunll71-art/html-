@@ -23,5 +23,5 @@ extension StudioController {
    }catch{self.finishExport(error.localizedDescription+"\n后台导出可能仍在继续，请检查项目 HTMLNativeStudio/iOS 目录。")} 
   }
  }
- func finishExport(_ message:String){exportJobID=nil;buttons[6].isEnabled=true;setStatus("导出未完成");showMessage("导出检查",message)}
+ func finishExport(_ message:String){exportJobID=nil;buttons[6].isEnabled=true;setStatus("导出未完成");if message.contains("冲突"){showSyncDetails()}else{showMessage("导出检查",message)}}
 }

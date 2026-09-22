@@ -1,19 +1,19 @@
 'use strict';
-let payload=null,revision=-1,busy=false,sending=Promise.resolve(),views=new Map(),editMode=true,lastAnimationID=null,sourceSelection=null;
+let payload=null,revision=-1,busy=false,pollPending=false,sending=Promise.resolve(),views=new Map(),editMode=true,lastAnimationID=null,sourceSelection=null;
 window.studioSelect=id=>{sourceSelection=id;for(const [key,v] of views)v.style.outline=key===id&&editMode ? "2px solid #235BDE":"none"};
 const root=document.getElementById('screen'),error=document.getElementById('error');
 function api(path,body){return fetch(path,{method:body?'POST':'GET',headers:{'X-Studio-Token':TOKEN,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined}).then(async r=>{let v=await r.json();if(!r.ok)throw Error(v.error);return v})}
 function emit(event){const request={side:'web',event,eventID:crypto.randomUUID(),projectID:payload?.projectID,pageID:payload?.page.id};sending=sending.then(()=>api('/event',request)).then(()=>poll(true)).catch(e=>{error.textContent=e.message;error.style.display='block'})}
-function render(p){const animate=!matchMedia('(prefers-reduced-motion: reduce)').matches&&p.page.animation&&lastAnimationID!==p.page.animationID;lastAnimationID=p.page.animationID;const motion=animate?p.page.animation:null;payload=p;editMode=p.editing;const page=StudioEngine.frame(p.model,p.session),ids=new Set(page.nodes.map(n=>n.id));
+function render(p){const animate=!matchMedia('(prefers-reduced-motion: reduce)').matches&&p.page.animation&&lastAnimationID!==p.page.animationID;lastAnimationID=p.page.animationID;const motion=animate?p.page.animation:null;payload=p;editMode=p.editing;const page=p.page,ids=new Set(page.nodes.map(n=>n.id));
 for(const [id,v] of views)if(!ids.has(id)){if(motion){v.style.pointerEvents='none';v.animate([{opacity:v.style.opacity},{opacity:0}],{duration:1000*motion.duration,delay:1000*(motion.delay||0)}).finished.finally(()=>v.remove())}else v.remove();views.delete(id)}
-for(const n of page.nodes){let v=views.get(n.id),tag=n.type==='image'?'img':n.type==='nativeSegment'||n.type==='nativeStepper'?'div':n.type==='nativeTextField'?'input':n.type==='nativeTextView'?'textarea':n.type==='nativeButton'||n.type==='nativeCheckbox'?'button':n.type==='nativeSwitch'||n.type==='nativeSlider'?'input':'div';
+for(const [nodeIndex,n] of page.nodes.entries()){let v=views.get(n.id),tag=n.type==='image'?'img':n.type==='nativeSegment'||n.type==='nativeStepper'?'div':n.type==='nativeTextField'?'input':n.type==='nativeTextView'?'textarea':n.type==='nativeButton'||n.type==='nativeCheckbox'?'button':n.type==='nativeSwitch'||n.type==='nativeSlider'?'input':'div';
 if(!v||v.tagName.toLowerCase()!==tag){if(v)v.remove();v=document.createElement(tag);views.set(n.id,v);v.dataset.kind=n.type;v.dataset.node=n.id;if(motion)v.animate([{opacity:0},{opacity:n.opacity}],{duration:1000*motion.duration,delay:1000*(motion.delay||0),fill:'backwards'});
 v.onclick=e=>{e.stopPropagation();if(editMode){window.studioSelect(n.id);window.webkit?.messageHandlers.studio?.postMessage({type:'select',id:n.id});return}const d=payload.page.events[n.id];if(d?.disabled)return;if(n.type==='nativeCheckbox')emit({node:n.id,value:!payload.page.nodes.find(x=>x.id===n.id).isOn});else if(n.type==='nativeSegment'||n.type==='nativeStepper'||n.type==='nativeSwitch'||n.type==='nativeSlider'||n.type==='nativeTextField'||n.type==='nativeTextView')return;else if(d?.action)emit({node:n.id})};
 v.oninput=()=>{if(!editMode)emit({node:n.id,value:n.type==='nativeSwitch'?v.checked:['nativeSlider','nativeStepper','nativeSegment'].includes(n.type)?Number(v.value):v.value})};
 if(n.type==='scroll'){let timer;v.onscroll=()=>{if(v._setting)return;v._scrollingUntil=performance.now()+200;clearTimeout(timer);timer=setTimeout(()=>emit({type:'scroll',node:n.id,x:v.scrollLeft,y:v.scrollTop}),100)}}}
 let pointerStart=null;v.onpointerdown=e=>{if(!editMode)return;e.stopPropagation();pointerStart={x:e.clientX,y:e.clientY,id:e.pointerId};v.setPointerCapture(e.pointerId)};v.onpointercancel=()=>pointerStart=null;v.onpointerup=e=>{if(!pointerStart)return;const start=pointerStart;pointerStart=null;if(editMode&&Math.hypot(e.clientX-start.x,e.clientY-start.y)>10&&e.clientX<0){window.webkit?.messageHandlers.studio?.postMessage({type:'resourceDrop',id:n.id,projectID:payload.projectID,signature:payload.sourceSignature,x:e.clientX,y:e.clientY})}};
 v.draggable=editMode;v.ondragstart=e=>{if(!editMode){e.preventDefault();return}e.stopPropagation();window.studioSelect(n.id);window.webkit?.messageHandlers.studio?.postMessage({type:'select',id:n.id});e.dataTransfer.effectAllowed='copy';e.dataTransfer.setData('text/plain','html-node:'+JSON.stringify({projectID:payload.projectID,signature:payload.sourceSignature,node:n.id}));const ghost=v.cloneNode(!['container','scroll'].includes(n.type));ghost.style.outline='none';ghost.style.position='fixed';ghost.style.left='0';ghost.style.top='0';ghost.style.pointerEvents='none';ghost.style.transform=`scale(${Math.min(1,160/n.width,160/n.height)})`;ghost.style.transformOrigin='top left';document.body.append(ghost);e.dataTransfer.setDragImage(ghost,8,8);setTimeout(()=>ghost.remove(),0)};
-v.style.zIndex=String(page.nodes.indexOf(n));const parent=views.get(n.parent)||root;if(v.parentNode!==parent)parent.appendChild(v);
+v.style.zIndex=String(nodeIndex);const parent=views.get(n.parent)||root;if(v.parentNode!==parent)parent.appendChild(v);
 const font=n.fontName?`"${n.fontName}"`:n.fontFamily==='serif'?'serif':n.fontFamily==='monospace'?'monospace':n.fontFamily==='cursive'?'cursive':'-apple-system';
 Object.assign(v.style,{position:'absolute',left:n.x+'px',top:n.y+'px',width:n.width+'px',height:n.height+'px',color:n.color,background:n.fill,opacity:n.opacity,border:`${n.strokeWidth}px solid ${n.strokeColor}`,borderRadius:n.cornerRadius+'px',fontFamily:font,fontSize:n.fontSize+'px',fontWeight:n.fontWeight,textAlign:n.alignment,whiteSpace:'pre-wrap',lineHeight:n.lineHeight?n.lineHeight+'px':'normal',letterSpacing:(n.letterSpacing||0)+'px',transform:`rotate(${n.rotation}deg) scale(${n.scale||1})`,overflow:StudioEngine.clipsContent(n)?(n.type==='scroll'?'auto':'hidden'):'visible',pointerEvents:n.hidden||(!editMode&&n.type==='container'&&!page.events[n.id]?.action&&n.fill==='#00000000')?'none':'auto',display:n.hidden?'none':'block',padding:'0',margin:'0',transition:motion?`all ${motion.duration||.25}s ${motion.curve==='linear'?'linear':motion.curve==='spring'?'cubic-bezier(.2,.8,.2,1.08)':'ease-in-out'} ${motion.delay||0}s`:'none'});
 if(n.gradient){const g=n.gradient,start=g.start||[0,0],end=g.end||[0,1],angle=90+Math.atan2((end[1]-start[1])*n.height,(end[0]-start[0])*n.width)*180/Math.PI;v.style.backgroundImage=`linear-gradient(${angle}deg,${g.colors.map((c,i)=>c+' '+((g.locations?.[i]??i/(g.colors.length-1))*100)+'%').join(',')})`}else v.style.backgroundImage='none';
@@ -44,7 +44,20 @@ if(n.type==='scroll'&&performance.now()>(v._scrollingUntil||0)){v._setting=true;
 let fontStyle=document.getElementById('fonts');if(!fontStyle){fontStyle=document.createElement('style');fontStyle.id='fonts';document.head.appendChild(fontStyle)}
 const css=p.assets.filter(a=>a.kind==='font').map(a=>`@font-face{font-family:"${a.postscript}";src:url('/asset?project=${p.projectID}&id=${a.id}&token=${TOKEN}')}`).join('');if(fontStyle.textContent!==css)fontStyle.textContent=css;
 renderNativeChrome(p,page);processNativeEffects(p);window.studioSelect(sourceSelection);root.style.width=page.width+'px';root.style.height=page.height+'px';root.style.transform=`scale(${402/page.width})`;resizePhone();api('/ack',{side:'web',revision:p.revision});window.webkit?.messageHandlers.studio?.postMessage({type:'rendered',revision:p.revision,route:page.id});}
-async function poll(force=false){if(busy)return;busy=true;try{const p=await api('/runtime?side=web&after='+(force?-1:revision));if(p.model){revision=p.revision;render(p)}error.style.display='none'}catch(e){error.textContent=e.message;error.style.display='block'}finally{busy=false}}
+async function poll(force=false){
+ if(busy){if(force)pollPending=true;return}busy=true;
+ try{
+  const query=new URLSearchParams({side:'web',after:String(force?-1:revision),project:payload?.projectID||'',model:payload?.modelHash||''});
+  let p=await api('/runtime?'+query);
+  if(p.reuseModel){
+   if(p.projectID!==payload?.projectID||p.modelHash!==payload?.modelHash){revision=-1;payload=null;pollPending=true;return}
+   p={...p,model:payload.model,assets:payload.assets};
+  }
+  if(p.page&&p.model&&p.revision>=revision){revision=p.revision;render(p)}
+  error.style.display='none';
+ }catch(e){error.textContent=e.message;error.style.display='block'}
+ finally{busy=false;if(pollPending){pollPending=false;void poll(true)}}
+}
 setInterval(poll,150);function resizePhone(){document.getElementById('phone-stage').style.transform=`scale(${Math.min(innerWidth/456,innerHeight/910)})`}addEventListener('resize',resizePhone);resizePhone();poll();
 
 // Command+W toggles studio mode, but never steals a character from an editable field or IME.

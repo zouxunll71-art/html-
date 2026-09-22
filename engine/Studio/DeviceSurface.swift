@@ -98,6 +98,7 @@ final class DeviceSurface:UIView,UIKeyInput,UIDragInteractionDelegate,UIDropInte
    onPointer?("up",dragStart);dragStart=wheelOrigin;gesture.setTranslation(.zero,in:self);onPointer?("down",dragStart)
   }
  }
+ func displayBounds(_ node:StudioNode)->CGRect{node.displayedSelectionBounds(in:Dictionary(nodes.map{($0.id,$0)},uniquingKeysWith:{_,last in last}))}
  var screenRect:CGRect{if isSource{return bounds.insetBy(dx:5,dy:5)};let s=bounds.width/456;return CGRect(x:27*s,y:18*s,width:402*s,height:874*s)}
  func logical(_ point:CGPoint)->CGPoint{CGPoint(x:(point.x-screenRect.minX)/screenRect.width*logicalSize.width,y:(point.y-screenRect.minY)/screenRect.height*logicalSize.height)}
  func actual(_ rect:CGRect)->CGRect {CGRect(x:rect.minX/logicalSize.width*screenRect.width,y:rect.minY/logicalSize.height*screenRect.height,width:rect.width/logicalSize.width*screenRect.width,height:rect.height/logicalSize.height*screenRect.height)}
@@ -115,16 +116,16 @@ final class DeviceSurface:UIView,UIKeyInput,UIDragInteractionDelegate,UIDropInte
   let maskPath=UIBezierPath()
   if selectedIDs.count>1{for item in nodes where selectedIDs.contains(item.id){let region=clippingRect(for:item,map:map);if !region.isNull{maskPath.append(UIBezierPath(rect:actual(region)))}}}else if !clip.isNull{maskPath.append(UIBezierPath(rect:actual(clip)))}
   selectionMask.path=maskPath.cgPath
-  if selectedIDs.count<=1 && (clip.isNull || !clip.intersects(n.selectionBounds)){selection.isHidden=true;handle.isHidden=true;rotateHandle.isHidden=true;return}
+  if selectedIDs.count<=1 && (clip.isNull || !clip.intersects(displayBounds(n))){selection.isHidden=true;handle.isHidden=true;rotateHandle.isHidden=true;return}
   if selectedIDs.count>1 {
-   let rect=nodes.filter{selectedIDs.contains($0.id)}.reduce(CGRect.null){$0.union($1.selectionBounds)}
+   let rect=nodes.filter{selectedIDs.contains($0.id)}.reduce(CGRect.null){$0.union(displayBounds($1))}
    // Each resource keeps its own boundary; the union only positions the group resize handle.
    CATransaction.begin();CATransaction.setDisableActions(true)
    for item in nodes where selectedIDs.contains(item.id){
     let outline=memberOutlines[item.id] ?? CAShapeLayer()
     if outline.superlayer==nil{overlay.layer.addSublayer(outline);memberOutlines[item.id]=outline}
     outline.frame=overlay.bounds;outline.fillColor=UIColor.clear.cgColor;outline.strokeColor=selectionColor.cgColor;outline.lineWidth=2
-    outline.path=UIBezierPath(rect:actual(item.selectionBounds)).cgPath
+    outline.path=UIBezierPath(rect:actual(displayBounds(item))).cgPath
     let mask=(outline.mask as? CAShapeLayer) ?? CAShapeLayer();mask.frame=overlay.bounds
     let region=clippingRect(for:item,map:map);mask.path=region.isNull ? nil:UIBezierPath(rect:actual(region)).cgPath;outline.mask=mask;outline.isHidden=region.isNull
    }
@@ -132,7 +133,7 @@ final class DeviceSurface:UIView,UIKeyInput,UIDragInteractionDelegate,UIDropInte
    selection.isHidden=true;selection.transform = .identity;selection.frame=actual(rect);handle.isHidden=isSource;handle.frame=CGRect(x:selection.frame.maxX-6,y:selection.frame.maxY-6,width:12,height:12);rotateHandle.isHidden=true;return
   }
   selection.isHidden=false;handle.isHidden=isSource;rotateHandle.isHidden=isSource
-  selection.transform = .identity;selection.frame=actual(n.selectionBounds)
+  selection.transform = .identity;selection.frame=actual(displayBounds(n))
   handle.frame=CGRect(x:selection.frame.maxX-5,y:selection.frame.maxY-5,width:10,height:10)
   rotateHandle.frame=CGRect(x:selection.center.x-5,y:selection.frame.minY-22,width:10,height:10)
  }
@@ -141,7 +142,7 @@ final class DeviceSurface:UIView,UIKeyInput,UIDragInteractionDelegate,UIDropInte
   var rect=CGRect(origin:.zero,size:logicalSize),parent=node.parent,seen=Set<String>()
   while let id=parent,seen.insert(id).inserted,let container=map[id]{
    if container.hidden || container.opacity<=0.01{return .null}
-   if container.clipsContent{rect=rect.intersection(container.frame)}
+   if container.clipsContent{rect=rect.intersection(container.frame.applying(container.selectionTransform(in:map)))}
    parent=container.parent
   }
   return rect
@@ -150,8 +151,8 @@ final class DeviceSurface:UIView,UIKeyInput,UIDragInteractionDelegate,UIDropInte
   let map=Dictionary(nodes.map{($0.id,$0)},uniquingKeysWith:{_,latest in latest})
   let hits=nodes.reversed().filter{n in
    guard n.hasVisibleSelectionContent && clippingRect(for:n,map:map).contains(point) else{return false}
-   let center=CGPoint(x:n.x+n.width/2,y:n.y+n.height/2);let p=CGPoint(x:point.x-center.x,y:point.y-center.y).applying(CGAffineTransform(rotationAngle: -n.rotation * .pi/180).scaledBy(x:1/max(0.001,n.scale ?? 1),y:1/max(0.001,n.scale ?? 1)))
-   return n.selectionFrame.offsetBy(dx:-center.x,dy:-center.y).contains(p)
+   let p=point.applying(n.selectionTransform(in:map).inverted())
+   return n.selectionFrame.contains(p)
   }
   guard isSource else{return hits.first}
   // Resource picking favors the smallest visible leaf over a containing backdrop.
@@ -183,7 +184,7 @@ final class DeviceSurface:UIView,UIKeyInput,UIDragInteractionDelegate,UIDropInte
   if !isSource && g.state == .began {
    let t=g.translation(in:self);let start=pointerOrigin ?? logical(CGPoint(x:point.x-t.x,y:point.y-t.y))
    let overlayPoint=CGPoint(x:start.x/logicalSize.width*screenRect.width,y:start.y/logicalSize.height*screenRect.height)
-   resizingGroup=tool != "move" && selectedIDs.count>1 && ((!handle.isHidden && handle.frame.insetBy(dx:-12,dy:-12).contains(overlayPoint)) || (tool=="resize" && nodes.contains{selectedIDs.contains($0.id) && $0.visualBounds.contains(start)}))
+   resizingGroup=tool != "move" && selectedIDs.count>1 && ((!handle.isHidden && handle.frame.insetBy(dx:-12,dy:-12).contains(overlayPoint)) || (tool=="resize" && nodes.contains{selectedIDs.contains($0.id) && displayBounds($0).contains(start)}))
    if resizingGroup{dragStart=start;dragTarget=selected}
   }
   if resizingGroup,let id=dragTarget {
@@ -199,16 +200,16 @@ final class DeviceSurface:UIView,UIKeyInput,UIDragInteractionDelegate,UIDropInte
    let translation=g.translation(in:self);dragStart=pointerOrigin ?? logical(CGPoint(x:point.x-translation.x,y:point.y-translation.y));changed=false
    if isSource {if operate{onPointer?("down",p)};return}
    if tool=="move",let current=selected,nodes.contains(where:{$0.id==current && !$0.hidden && !$0.locked}){action="move"}
-   else if selectedIDs.count>1 && nodes.contains(where:{selectedIDs.contains($0.id) && $0.selectionBounds.contains(dragStart)}){action="move"}
+   else if selectedIDs.count>1 && nodes.contains(where:{selectedIDs.contains($0.id) && displayBounds($0).contains(dragStart)}){action="move"}
    else if !handle.isHidden && handle.frame.insetBy(dx:-12,dy:-12).contains(CGPoint(x:point.x-screenRect.minX,y:point.y-screenRect.minY)){action="resize"}
    else if !rotateHandle.isHidden && rotateHandle.frame.insetBy(dx:-12,dy:-12).contains(CGPoint(x:point.x-screenRect.minX,y:point.y-screenRect.minY)){action="rotate"}
    else{action=tool=="resize" || tool=="rotate" ? tool : "move";selected=hit(dragStart)?.id;onSelect?(selected)}
    if selectedIDs.count>1{action="move"}
    dragTarget=selected
-   if let n=nodes.first(where:{$0.id==selected}){lastAngle=atan2(p.y-n.frame.midY,p.x-n.frame.midX)}
+   if let n=nodes.first(where:{$0.id==selected}){lastAngle=atan2(p.y-displayBounds(n).midY,p.x-displayBounds(n).midX)}
   }
   if isSource {if operate {onPointer?(g.state == .ended || g.state == .cancelled ? "up" : "move",p)};return}
-  if let id=dragTarget {var delta=CGPoint(x:p.x-dragStart.x,y:p.y-dragStart.y);if let n=nodes.first(where:{$0.id==id}){if action=="rotate"{let angle=atan2(p.y-n.frame.midY,p.x-n.frame.midX);var change=(angle-lastAngle)*180/CGFloat.pi;if change>180{change-=360};if change < -180{change+=360};delta.x=change;lastAngle=angle}else if action=="resize"{delta=delta.applying(CGAffineTransform(rotationAngle: -n.rotation * .pi/180))}};onMove?(id,delta,action,g.state == .ended || g.state == .cancelled);dragStart=p}
+  if let id=dragTarget {var delta=CGPoint(x:p.x-dragStart.x,y:p.y-dragStart.y);if let n=nodes.first(where:{$0.id==id}){if action=="rotate"{let angle=atan2(p.y-displayBounds(n).midY,p.x-displayBounds(n).midX);var change=(angle-lastAngle)*180/CGFloat.pi;if change>180{change-=360};if change < -180{change+=360};delta.x=change;lastAngle=angle}else if action=="resize"{delta=delta.applying(CGAffineTransform(rotationAngle: -n.rotation * .pi/180))}};onMove?(id,delta,action,g.state == .ended || g.state == .cancelled);dragStart=p}
  }
  func gestureRecognizer(_ gestureRecognizer:UIGestureRecognizer,shouldBeRequiredToFailBy other:UIGestureRecognizer)->Bool{
   !operate && !isSource && gestureRecognizer === panGesture && other.view is UIScrollView

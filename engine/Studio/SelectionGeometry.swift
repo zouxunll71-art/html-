@@ -1,5 +1,23 @@
 import UIKit
 extension StudioNode {
+ // Editor coordinates are flattened translations; UIKit still applies every ancestor transform.
+ func selectionTransform(in map:[String:StudioNode],includeSelf:Bool=true)->CGAffineTransform {
+  var result=CGAffineTransform.identity
+  var current:StudioNode?=includeSelf ? self:parent.flatMap{map[$0]}
+  var seen=Set<String>()
+  while let node=current,seen.insert(node.id).inserted {
+   let center=CGPoint(x:node.frame.midX,y:node.frame.midY)
+   let transform=CGAffineTransform(translationX:center.x,y:center.y).rotated(by:node.rotation * .pi/180).scaledBy(x:node.scale ?? 1,y:node.scale ?? 1).translatedBy(x:-center.x,y:-center.y)
+   result=result.concatenating(transform);current=node.parent.flatMap{map[$0]}
+  }
+  return result
+ }
+ func displayedSelectionBounds(in map:[String:StudioNode])->CGRect {selectionFrame.applying(selectionTransform(in:map))}
+ func editorDisplacement(_ delta:CGPoint,in map:[String:StudioNode])->CGPoint {
+  var inverse=selectionTransform(in:map,includeSelf:false).inverted();inverse.tx=0;inverse.ty=0
+  return delta.applying(inverse)
+ }
+
  var hasVisibleSelectionContent:Bool {
   guard !hidden,!locked,opacity>0.01,width>0,height>0 else{return false}
   let backdrop=UIColor(studioHex:fill).cgColor.alpha>0.01 || (strokeWidth>0 && UIColor(studioHex:strokeColor).cgColor.alpha>0.01) || gradient != nil

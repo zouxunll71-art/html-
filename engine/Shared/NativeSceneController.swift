@@ -3,7 +3,7 @@ import CoreText
 final class PassThroughContainer:UIView {var acceptsBackgroundTap=false;override func hitTest(_ point:CGPoint,with event:UIEvent?)->UIView?{let target=super.hitTest(point,with:event);return target===self && !acceptsBackgroundTap ? nil:target}}
 final class NativeSceneController:UIViewController,UIScrollViewDelegate,UITextFieldDelegate,UITextViewDelegate,UIGestureRecognizerDelegate {
  var scene:[String:Any]=[:];var views:[String:UIView]=[:];var kinds:[String:String]=[:];var specs:[String:[String:Any]]=[:]
- var assetProvider:((String)->UIImage?)?;var onEvent:(([String:Any])->Void)?;var applying=false;var animation:UIViewPropertyAnimator?;var lastAnimationID="";var enteringAnimation=false
+ var assetProvider:((String)->UIImage?)?;var onEvent:(([String:Any])->Void)?;var applying=false;var animation:UIViewPropertyAnimator?;var lastAnimationID="";var enteringAnimation=false;var animationGhosts=[UIView]()
  var layoutConstraints:[String:[NSLayoutConstraint]]=[:];var contentConstraints:[String:[NSLayoutConstraint]]=[:];var layingOut=false;var renderedWidth:CGFloat = -1;var layoutSize=CGSize.zero
  let fonts=NativeTypography();var scrollWork:[String:DispatchWorkItem]=[:];var localScrollUntil:[String:TimeInterval]=[:]
  override func viewDidLoad(){super.viewDidLoad();view.backgroundColor = .white;let tap=UITapGestureRecognizer(target:self,action:#selector(dismissKeyboard));tap.cancelsTouchesInView=false;tap.delegate=self;view.addGestureRecognizer(tap)}
@@ -11,12 +11,18 @@ final class NativeSceneController:UIViewController,UIScrollViewDelegate,UITextFi
  func gestureRecognizer(_ gestureRecognizer:UIGestureRecognizer,shouldRecognizeSimultaneouslyWith otherGestureRecognizer:UIGestureRecognizer)->Bool{true}
  @objc func dismissKeyboard(){view.window?.endEditing(true)}
  func number(_ d:[String:Any],_ key:String,_ fallback:CGFloat=0)->CGFloat{(d[key] as? NSNumber).map{CGFloat(truncating:$0)} ?? fallback}
+ func finishSceneAnimation(){
+  if let animator=animation{if animator.state == .active{animator.stopAnimation(false)};if animator.state == .stopped{animator.finishAnimation(at:.end)}};animation=nil
+  animationGhosts.forEach{$0.removeFromSuperview()};animationGhosts.removeAll()
+ }
  func apply(_ page:[String:Any],animated:Bool=true) {
   loadViewIfNeeded()
+  if !enteringAnimation{finishSceneAnimation()}
   if animated,!UIAccessibility.isReduceMotionEnabled,let a=page["animation"] as? [String:Any],let duration=a["duration"] as? Double,duration>0,let aid=page["animationID"] as? String,aid != lastAnimationID {
-   lastAnimationID=aid;animation?.stopAnimation(false);animation?.finishAnimation(at:.current)
+   lastAnimationID=aid
    let incoming=Set((page["nodes"] as? [[String:Any]] ?? []).compactMap{$0["id"] as? String});let removed=Set(views.keys).subtracting(incoming);var ghosts=[UIView]()
    for id in removed where !removed.contains(specs[id]?["parent"] as? String ?? ""){if let old=views[id],let snapshot=old.snapshotView(afterScreenUpdates:false){snapshot.frame=old.convert(old.bounds,to:view);view.addSubview(snapshot);ghosts.append(snapshot)}}
+   animationGhosts=ghosts
    let changes={self.enteringAnimation=true;self.apply(page,animated:false);self.enteringAnimation=false;ghosts.forEach{$0.alpha=0}}
    let animator:UIViewPropertyAnimator
    if a["curve"] as? String=="spring"{animator=UIViewPropertyAnimator(duration:duration,dampingRatio:0.82,animations:changes)}else{animator=UIViewPropertyAnimator(duration:duration,curve:a["curve"] as? String=="linear" ? .linear : .easeInOut,animations:changes)}

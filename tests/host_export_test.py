@@ -37,6 +37,24 @@ class ExportTests(unittest.TestCase):
   with patch.object(Path,'replace',fail_entry):
    with self.assertRaises(OSError):self.migrate()
   self.assertEqual(before,host_export.inventory(self.target))
+ def test_xcode_extraction_metadata_is_allowed_but_translation_edits_block(self):
+  catalog={'sourceLanguage':'en','strings':{'hello':{'extractionState':'manual','localizations':{'en':{'stringUnit':{'state':'translated','value':'Hello'}}}}},'version':'1.0'}
+  (self.out/'App/Localizable.xcstrings').write_text(json.dumps(catalog));self.migrate()
+  generated=self.target/'StudioGenerated/Localizable.xcstrings'
+  catalog['strings']['hello']['extractionState']='stale';generated.write_text(json.dumps(catalog,indent=2))
+  self.migrate()
+  catalog['strings']['hello']['localizations']['en']['stringUnit']['value']='User translation'
+  generated.write_text(json.dumps(catalog))
+  with self.assertRaises(ValueError):self.migrate()
+  self.assertIn('User translation',generated.read_text())
+ def test_explicit_target_binding_and_missing_target(self):
+  source=self.root/'old-source/HTMLNativeStudio';(source/'iOS').mkdir(parents=True)
+  self.assertEqual(host_export.resolve_bundle(source),source)
+  binding=source/'iOS/export-target.json'
+  binding.write_text(json.dumps({'version':1,'project':str(self.root/'Demo.xcodeproj')}))
+  self.assertEqual(host_export.resolve_bundle(source),self.bundle)
+  shutil.rmtree(self.root/'Demo.xcodeproj')
+  with self.assertRaises(ValueError):host_export.resolve_bundle(source)
  def test_no_host_keeps_standalone_export(self):
   shutil.rmtree(self.root/'Demo.xcodeproj');self.assertIsNone(host_export.inspect(self.bundle))
 if __name__=='__main__':unittest.main()

@@ -6,6 +6,10 @@ import CoreText
  func application(_ app:UIApplication,didFinishLaunchingWithOptions options:[UIApplication.LaunchOptionsKey:Any]?=nil)->Bool{let w=UIWindow(frame:UIScreen.main.bounds);w.rootViewController=NativeRuntimeController();w.overrideUserInterfaceStyle = .light;w.makeKeyAndVisible();window=w;return true}
 }
 final class NativeRuntimeController:UIViewController {
+ // Editable exported route fade duration; 0 disables it.
+ var pageTransitionDuration:TimeInterval=0.18
+ var renderedRouteKey=""
+ var routeSnapshot:UIView?;var routeAnimator:UIViewPropertyAnimator?
  let navigationHost=NativeNavigationHost(),modalScene=NativeSceneController();var lastChromeInsets=CGPoint(x:-1,y:-1);var lastChromeHeight:CGFloat = -1;var handledEffects=Set<String>();var lastChromeTargets=""
  var assetsNeedReload=false;private var lastRuntimeChange=Date.distantPast;private var pollStarted=Date.distantPast
  let scene=NativeSceneController();let engine=JSContext()!;var payload:[String:Any]=[:];var revision = -1;var busy=false;var timer:Timer?;var images:[String:UIImage]=[:];var fonts=Set<String>();var standalone=false;var assetGeneration=0;var imagePixels:[String:Int]=[:];var eventQueue=[[String:Any]]();var sending=false;var errorLabel=UILabel()

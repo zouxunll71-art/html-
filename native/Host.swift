@@ -130,6 +130,19 @@ final class ClientHostController:UIViewController,WKScriptMessageHandler,WKNavig
   editor.clientPhoneScroll.onBackgroundTap={[weak self] in self?.editor.workspace.onBackgroundTap?()}
   editor.workspace.addSubview(editor.clientPhoneScroll);editor.clientPhoneScroll.backgroundColor = .clear;editor.clientPhoneScroll.delaysContentTouches=false;editor.clientPhoneScroll.canCancelContentTouches=false
   for child in [editor.left,editor.right,editor.leftTitle,editor.rightTitle,editor.leftTools,editor.simulatorTools,editor.androidBack,editor.sourcePageButton,editor.closeWebButton] as [UIView]{editor.clientPhoneScroll.addSubview(child)}
+  editor.splashButton.configuration = .bordered()
+  editor.splashButton.configuration?.title="编辑启动页"
+  editor.splashButton.configuration?.baseForegroundColor=UIColor(studioHex:"#263240")
+  editor.splashButton.configuration?.cornerStyle = .medium
+  editor.leftTools.addArrangedSubview(editor.splashButton)
+  editor.leftTools.spacing=4
+  for case let button as UIButton in editor.leftTools.arrangedSubviews{
+   button.configuration?.contentInsets=NSDirectionalEdgeInsets(top:5,leading:2,bottom:5,trailing:2)
+   button.configuration?.titleTextAttributesTransformer=UIConfigurationTextAttributesTransformer{var attributes=$0;attributes.font = .systemFont(ofSize:11,weight:.medium);return attributes}
+   button.titleLabel?.numberOfLines=1
+   button.titleLabel?.adjustsFontSizeToFitWidth=true
+   button.titleLabel?.minimumScaleFactor=0.8
+  }
   editor.workspace.bringSubviewToFront(editor.extractionProgress)
   editor.clientSyncChanged={[weak self] text in guard let data=try? JSONSerialization.data(withJSONObject:[text]),let json=String(data:data,encoding:.utf8) else{return};self?.web.evaluateJavaScript("window.receiveSyncStatus?.(\(json)[0])",completionHandler:nil)}
   editor.clientModeChanged={[weak self] running in self?.web.evaluateJavaScript("window.receivePreviewMode?.(\(running))",completionHandler:nil)}

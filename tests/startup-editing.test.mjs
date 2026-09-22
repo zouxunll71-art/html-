@@ -1,0 +1,22 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import vm from 'node:vm';
+const context=vm.createContext({});
+vm.runInContext(readFileSync(new URL('../engine/Shared/engine.js',import.meta.url),'utf8'),context);
+const engine=context.StudioEngine;
+for(const delayed of [false,true])test(`startup editing suppresses ${delayed?'delayed':'immediate'} navigation and normal navigation resumes`,()=>{
+ const transition={type:'replace',page:'home'};
+ const model={entry:'startup',state:{},pages:{startup:{role:'startup',onEnter:'start'},home:{}},actions:{start:delayed?[{type:'delay',duration:1,actions:[transition]}]:[transition]}};
+ const initial=engine.initial(model);
+ const oldEffect=Object.keys(initial.pendingEffects)[0];
+ let editing=engine.reduce(model,initial,{type:'navigate',page:'startup',preview:true});
+ assert.equal(editing.stack.at(-1).page,'startup');
+ assert.equal(Object.keys(editing.pendingEffects).length,0);
+ if(oldEffect)editing=engine.reduce(model,editing,{type:'effectComplete',id:oldEffect});
+ assert.equal(editing.stack.at(-1).page,'startup');
+ let running=engine.reduce(model,editing,{type:'navigate',page:editing.editingPage});
+ assert.equal(running.editingPage,undefined);
+ if(delayed)running=engine.reduce(model,running,{type:'effectComplete',id:Object.keys(running.pendingEffects)[0]});
+ assert.equal(running.stack.at(-1).page,'home');
+});

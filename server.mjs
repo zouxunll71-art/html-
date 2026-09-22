@@ -57,7 +57,7 @@ async function registerStudioProject(p,notifyDesktop=false){
   if(existing)return existing.id;
   const result=await rpc.call('project/import',{name:p.name,roots:[{path:p.sourcePath}],idempotencyKey:'html-studio:'+p.id});sidebarSync.invalidate();return result.project.id;
 }
-async function sidebar(force=false){const [native,catalog]=await Promise.all([studio('/projects'),sidebarSync.read(force)]);sidebarSnapshot=mergedSidebar(native,registry.conversations,catalog,registry.previewBindings,registry.hiddenNativeProjects);return sidebarSnapshot;}
+async function sidebar(force=false){const [native,catalog]=await Promise.all([studio('/projects?summary=1'),sidebarSync.read(force)]);sidebarSnapshot=mergedSidebar(native,registry.conversations,catalog,registry.previewBindings,registry.hiddenNativeProjects);return sidebarSnapshot;}
 let sequence = 0, startupError = '', bootingStudio = null, studioReady = false;
 const events = [];
 const symbolCache = new Map();
@@ -203,7 +203,7 @@ async function frames() {
 async function windowAction(action) {
   const c = config(), studioApp = path.join(ROOT, 'build/studio/Build/Products/Debug-maccatalyst/HTMLNativeStudio.app'), sim = path.join(c.developerDir, 'Applications/Simulator.app');
   if (action === 'hide') await exec(path.join(HERE, 'native/windows'), ['hide', studioApp, sim]);
-  else if (action === 'show-studio') await exec('/usr/bin/open', [studioApp]);
+  else if (action === 'show-studio') await exec('/usr/bin/open', ['/Applications/HTML Native Studio.app']);
   else if (action === 'show-simulator') await exec('/usr/bin/open', ['-a', sim, '--args', '-CurrentDeviceUDID', c.ios]);
   else throw new Error('未知窗口操作');
 }

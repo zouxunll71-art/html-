@@ -26,6 +26,29 @@ extension NativeRuntimeController:SFSafariViewControllerDelegate,UIAdaptivePrese
   if controller.parent !== self {controller.willMove(toParent:nil);controller.view.removeFromSuperview();controller.removeFromParent();addChild(controller);controller.view.translatesAutoresizingMaskIntoConstraints=false;view.addSubview(controller.view);NSLayoutConstraint.activate([controller.view.leadingAnchor.constraint(equalTo:view.leadingAnchor),controller.view.trailingAnchor.constraint(equalTo:view.trailingAnchor),controller.view.topAnchor.constraint(equalTo:view.topAnchor),controller.view.bottomAnchor.constraint(equalTo:view.bottomAnchor)]);controller.didMove(toParent:self)}
  }
  func applyRuntimePage(_ page:[String:Any]){
+  let chrome=page["nativeChrome"] as? [String:Any]
+  let stack=(chrome?["stack"] as? [[String:Any]] ?? []).compactMap{$0["page"] as? String}
+  let routeParts=[(payload["model"] as? [String:Any])?["id"] as? String ?? "",page["id"] as? String ?? ""]+stack+(page["modalPages"] as? [String] ?? [])
+  let routeKey=String(data:(try? JSONSerialization.data(withJSONObject:routeParts)) ?? Data(),encoding:.utf8) ?? ""
+  let changed = !renderedRouteKey.isEmpty && renderedRouteKey != routeKey
+  renderedRouteKey=routeKey
+  if changed {
+   if routeAnimator?.state == .active{routeAnimator?.stopAnimation(true)};routeAnimator=nil;routeSnapshot?.removeFromSuperview();routeSnapshot=nil
+   scene.finishSceneAnimation();modalScene.finishSceneAnimation()
+  }
+  if changed,view.window != nil,pageTransitionDuration>0,!UIAccessibility.isReduceMotionEnabled,let snapshot=view.snapshotView(afterScreenUpdates:false) {
+   snapshot.frame=view.bounds;snapshot.autoresizingMask=[.flexibleWidth,.flexibleHeight];snapshot.isUserInteractionEnabled=false
+   UIView.performWithoutAnimation{self.applyRuntimeContents(page,animated:false);self.view.layoutIfNeeded()}
+   view.addSubview(snapshot);routeSnapshot=snapshot
+   let animator=UIViewPropertyAnimator(duration:pageTransitionDuration,curve:.easeInOut){snapshot.alpha=0}
+   animator.addCompletion{[weak self,weak snapshot]_ in
+    snapshot?.removeFromSuperview()
+    if self?.routeSnapshot === snapshot{self?.routeSnapshot=nil;self?.routeAnimator=nil}
+   }
+   routeAnimator=animator;animator.startAnimation()
+  }else{applyRuntimeContents(page,animated:!changed)}
+ }
+ func applyRuntimeContents(_ page:[String:Any],animated:Bool){
   if let chrome=page["nativeChrome"] as? [String:Any]{
    pinChild(navigationHost);navigationHost.view.isHidden=false;navigationHost.apply(chrome,scene:scene)
    var content=page,overlay=page
@@ -33,10 +56,10 @@ extension NativeRuntimeController:SFSafariViewControllerDelegate,UIAdaptivePrese
    let all=page["nodes"] as? [[String:Any]] ?? []
    func isModal(_ node:[String:Any])->Bool{let id=node["id"] as? String ?? "";return id.hasPrefix("$shade") || modals.contains{ id==$0 || id.hasPrefix($0+"/") }}
    content["nodes"]=all.filter{!isModal($0)}.map {node -> [String:Any] in var node=node;if (node["parent"] as? String ?? "").isEmpty{node["y"]=(node["y"] as? Double ?? 0)-top};return node}
-   scene.apply(content)
-   pinChild(modalScene);view.bringSubviewToFront(modalScene.view);modalScene.view.backgroundColor = .clear;modalScene.view.isHidden=modals.isEmpty;overlay["nodes"]=all.filter{isModal($0)};modalScene.apply(overlay)
+   scene.apply(content,animated:animated)
+   pinChild(modalScene);view.bringSubviewToFront(modalScene.view);modalScene.view.backgroundColor = .clear;modalScene.view.isHidden=modals.isEmpty;overlay["nodes"]=all.filter{isModal($0)};modalScene.apply(overlay,animated:animated)
   }else{
-   navigationHost.viewIfLoaded?.isHidden=true;modalScene.viewIfLoaded?.isHidden=true;pinChild(scene);view.layoutIfNeeded();scene.apply(page)
+   navigationHost.viewIfLoaded?.isHidden=true;modalScene.viewIfLoaded?.isHidden=true;pinChild(scene);view.layoutIfNeeded();scene.apply(page,animated:animated)
   }
   if page["closeBrowser"] as? Bool==true {
    if let controller=presentedViewController as? SFSafariViewController{controller.dismiss(animated:true){[weak self] in self?.reportBrowser(false)}}else{reportBrowser(false)}

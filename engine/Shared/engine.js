@@ -80,7 +80,7 @@ function reduce(model,session,event){const s=clone(session);s.modals=modalPages(
  else if(event.type==='chromeInsets'){for(const key of ['top','bottom'])if(!Number.isFinite(event[key])||event[key]<0||event[key]>250)throw Error('Invalid safe area');s.chromeInsets={top:event.top,bottom:event.bottom};if(event.height!=null){if(!Number.isFinite(event.height)||event.height<240||event.height>4096)throw Error('Invalid viewport height');s.viewportHeight=event.height}}
  else if(event.type==='tab')run([{type:'tab',page:event.page}]);
  else if(event.type==='popTo'){if(!Number.isInteger(event.depth)||event.depth<1||event.depth>s.stack.length)throw Error('Invalid navigation depth');s.stack=s.stack.slice(0,event.depth);s.modals=[]}
- else if(event.type==='navigate'){if(!model.pages[event.page])throw Error('Unknown page');s.stack=[{page:event.page,params:{}}];s.modals=[];if(model.pages[event.page].onEnter)run(model.actions[model.pages[event.page].onEnter])}
+ else if(event.type==='navigate'){if(!model.pages[event.page])throw Error('Unknown page');s.stack=[{page:event.page,params:{}}];s.modals=[];delete s.editingPage;if(event.preview===true){s.editingPage=event.page;s.pendingEffects={};s.effects=[]}else if(model.pages[event.page].onEnter)run(model.actions[model.pages[event.page].onEnter])}
  else if(event.type==='scroll')s.scroll[event.node]={x:event.x||0,y:event.y||0};
  else if(event.type==='back')run([{type:'back'}]);
  else {if(event.bind)set(s.state,event.bind,event.value);if(event.action){if(!model.actions[event.action])throw Error('Unknown action '+event.action);run(model.actions[event.action])}}

@@ -3,6 +3,11 @@
 import subprocess,os,json,time,urllib.request,fcntl,signal,sys
 from pathlib import Path
 from source_stamp import fingerprint
+# Legacy desktop shortcuts must open the installed current client, without restarting its engine.
+client=Path('/Applications/HTML Native Studio.app')
+if '--headless' not in sys.argv and client.is_dir():
+ subprocess.run(['/usr/bin/open',str(client)],check=True)
+ sys.exit(0)
 ROOT=Path(__file__).resolve().parents[1];os.chdir(ROOT)
 config=json.loads((ROOT/'bridge/config.json').read_text());env=dict(os.environ,DEVELOPER_DIR=config['developerDir'])
 (ROOT/'artifacts').mkdir(exist_ok=True);(ROOT/'build').mkdir(exist_ok=True)
@@ -29,7 +34,9 @@ runtime=ROOT/'build/runtime/Build/Products/Debug-iphonesimulator/HTMLNativeRunti
 stamp_path=ROOT/'artifacts/build-source.json'
 try:built=json.loads(stamp_path.read_text()).get('fingerprint')
 except Exception:built=None
-needs_build=not studio.exists() or not runtime.exists() or not (ROOT/'build/ios-frames').exists() or not (ROOT/'build/ios-input').exists() or built!=fingerprint('build')
+headless='--headless' in sys.argv
+if headless:env['STUDIO_HEADLESS']='1'
+needs_build=(not headless and not studio.exists()) or not runtime.exists() or not (ROOT/'build/ios-frames').exists() or not (ROOT/'build/ios-input').exists() or built!=fingerprint('build')
 if needs_build:
  executable=str(studio/'Contents/MacOS/HTMLNativeStudio')
  if any(command==executable or command.startswith(executable+' ') for _,_,command in processes()):

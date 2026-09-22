@@ -150,12 +150,19 @@ final class StudioController:UIViewController,UITableViewDataSource,UITableViewD
  func dispatchEvent(_ event:[String:Any],side:String){var body:[String:Any]=["side":side,"event":event,"eventID":UUID().uuidString];if let id=project?.id{body["projectID"]=id};Bridge.shared.json("/event",body){[weak self]r in if case .failure(let e)=r{self?.error(e)}else{self?.pollRoute()}}}
  func toggleRun(){releaseSimulatorTouches();simulatorInput.stop();scrollRelay.cancel();running=mode.selectedSegmentIndex==1;editingTools.isUserInteractionEnabled = !running;editingTools.alpha=running ? 0.45:1;sourcePageButton.isEnabled = !running;rightTitle.text=running ? "HTML 原型 · 运行预览":"HTML 原型 · 点击取资源";left.operate=running;if !running{leftTitle.text="iOS 成品 · 真实模拟器"};leftTools.isHidden=running;simulatorTools.isHidden = !running;iosBrowser.isUserInteractionEnabled = !running;iosBrowser.alpha=running ? 0.45:1;sourceBrowser.isUserInteractionEnabled = !running;sourceBrowser.alpha=running ? 0.45:1;inspector.isUserInteractionEnabled = !running;inspector.alpha=running ? 0.45:1;left.setNeedsLayout();if !running{updatePage()};Bridge.shared.json("/mode",["editing":!running]){[weak self]result in if case .failure(let error)=result{self?.error(error)}else{self?.connectEmbeddedSimulator()}}}
  func newHTMLProject(name:String?=nil){Bridge.shared.json("/new",name.map{["name":$0]} ?? [:]){[weak self]r in if case .success(let d)=r,let p=try? JSONDecoder().decode(StudioProject.self,from:d){self?.useProject(p);self?.loadProjects()}else if case .failure(let e)=r{self?.error(e)}}}
- func showSyncDetails(){Bridge.shared.request("/status"){[weak self]r in guard let self=self else{return};if case .success(let d)=r,let s=try? JSONSerialization.jsonObject(with:d) as? [String:Any]{
-   let conflicts=s["conflicts"] as? [[String:Any]] ?? []
-   if let c=conflicts.first{let text="图层：\(c["key"] ?? "")\n属性：\(c["field"] ?? "")\n原值：\(c["base"] ?? "已删除")\nHTML：\(c["html"] ?? "无")\niOS：\(c["ios"] ?? "")";let a=UIAlertController(title:"iOS 修改冲突",message:text,preferredStyle:.alert)
-    for choice in ["ios","html"]{a.addAction(UIAlertAction(title:choice=="ios" ? "保留 iOS" : "采用 HTML",style:.default){_ in Bridge.shared.json("/conflict",["key":c["key"]!,"field":c["field"]!,"choice":choice]){_ in self.pollRoute()}})};a.addAction(UIAlertAction(title:"稍后",style:.cancel));self.present(a,animated:true)
-   }else{self.showMessage("源码与同步",(self.project?.sourcePath ?? "")+"\n\n"+(s["error"] as? String ?? "")+"\n保存源码后会自动编译。请在上述目录编辑 app.json 与 pages 下的 HTML/CSS。")}
-  }}}
+ @objc func showSyncDetails(){
+  guard let projectID=project?.id else{return}
+  Bridge.shared.request("/status"){[weak self] result in
+   guard let self=self,self.project?.id==projectID else{return}
+   do{let data=try result.get();guard let status=try JSONSerialization.jsonObject(with:data) as? [String:Any],status["active"] as? String==projectID else{return}
+    let conflicts=status["conflicts"] as? [[String:Any]] ?? []
+    if !conflicts.isEmpty {
+     let controller=ConflictListController(projectID:projectID,conflicts:conflicts);controller.onResolved={[weak self] in self?.observedRevision = -1;self?.pollRoute()}
+     let navigation=UINavigationController(rootViewController:controller);navigation.modalPresentationStyle = .formSheet;navigation.preferredContentSize=CGSize(width:720,height:580);self.present(navigation,animated:true)
+    }else{self.showMessage("源码与同步",(self.project?.sourcePath ?? "")+"\n\n当前没有 iOS 修改冲突。\n"+(status["error"] as? String ?? ""))}
+   }catch{self.error(error)}
+  }
+ }
  func restoreFollowing(){guard let n=page?.nodes.first(where:{$0.id==selected})else{return};Bridge.shared.json("/restore-follow",["key":n.sharedKey ?? n.id]){[weak self]_ in self?.pollRoute()}}
  func importProject(){
   showProjectImport()
@@ -250,11 +257,18 @@ final class StudioController:UIViewController,UITableViewDataSource,UITableViewD
   if !historyGesture{editGeneration+=1;scrollRelay.stopMomentum();saveTimer?.invalidate();previewTimer?.invalidate();checkpoint();historyGesture=true;dirty=true;snapCorrection = .zero}
   let ids=selectionIDs
   let beforeMove=project!.pages[pageIndex].nodes
-  let delta=kind=="move" ? snappedDelta(delta,ids:ids):delta
+  let transformMap=Dictionary(beforeMove.map{($0.id,$0)},uniquingKeysWith:{_,last in last})
+  let transformed=beforeMove.contains{ids.contains($0.id) && !$0.selectionTransform(in:transformMap,includeSelf:false).isIdentity}
+  let delta=kind=="move" && !transformed ? snappedDelta(delta,ids:ids):delta
+  func displacement(for node:StudioNode)->CGPoint {
+   var owner=node,parent=node.parent,seen=Set<String>()
+   while let id=parent,seen.insert(id).inserted,let ancestor=transformMap[id]{if ids.contains(id){owner=ancestor};parent=ancestor.parent}
+   return owner.editorDisplacement(delta,in:transformMap)
+  }
   if ids.count>1 {
-   if kind=="groupResize"{scaleSelection(delta)}else{for index in project!.pages[pageIndex].nodes.indices where ids.contains(project!.pages[pageIndex].nodes[index].id){project!.pages[pageIndex].nodes[index].x+=delta.x;project!.pages[pageIndex].nodes[index].y+=delta.y}}
+   if kind=="groupResize"{scaleSelection(delta)}else{for index in project!.pages[pageIndex].nodes.indices where ids.contains(project!.pages[pageIndex].nodes[index].id){let movement=displacement(for:beforeMove[index]);project!.pages[pageIndex].nodes[index].x+=movement.x;project!.pages[pageIndex].nodes[index].y+=movement.y}}
   }else {
-  var n=project!.pages[pageIndex].nodes[i];if kind=="resize"{n.width=max(4,n.width+delta.x);n.height=max(4,n.height+delta.y)}else if kind=="rotate"{n.rotation+=delta.x}else{n.x+=delta.x;n.y+=delta.y}
+  var n=project!.pages[pageIndex].nodes[i];let delta=kind=="rotate" ? delta:displacement(for:n);if kind=="resize"{n.width=max(4,n.width+delta.x);n.height=max(4,n.height+delta.y)}else if kind=="rotate"{n.rotation+=delta.x}else{n.x+=delta.x;n.y+=delta.y}
   project!.pages[pageIndex].nodes[i]=n}
   if kind=="move" {
    let map=Dictionary(beforeMove.map{($0.id,$0)},uniquingKeysWith:{_,latest in latest})
@@ -263,7 +277,7 @@ final class StudioController:UIViewController,UITableViewDataSource,UITableViewD
     guard !ids.contains(child.id) else{continue}
     var parent=child.parent;var visited=Set<String>()
     while let pid=parent,visited.insert(pid).inserted {
-     if ids.contains(pid){project!.pages[pageIndex].nodes[index].x+=delta.x;project!.pages[pageIndex].nodes[index].y+=delta.y;break}
+     if ids.contains(pid){let movement=displacement(for:beforeMove[index]);project!.pages[pageIndex].nodes[index].x+=movement.x;project!.pages[pageIndex].nodes[index].y+=movement.y;break}
      parent=map[pid]?.parent
     }
    }
@@ -299,7 +313,8 @@ final class StudioController:UIViewController,UITableViewDataSource,UITableViewD
    if status["active"] is NSNull,let p=self.project {Bridge.shared.json("/activate-project",["id":p.id]){[weak self]r in if case .failure(let e)=r{self?.error(e)}else{self?.observedRevision = -1}};return}
    let problem=status["error"] as? String ?? "",conflicts=status["conflicts"] as? [[String:Any]] ?? [],acks=status["ack"] as? [String:Int] ?? [:]
    self.linked=status["linked"] as? Bool ?? true;self.copyButton.setTitle(self.linked ? "两端联动" : "独立操作",for:.normal)
-   if !problem.isEmpty{self.showSyncStatus("同步失败 · 保留上一版 · "+problem)}else if !conflicts.isEmpty{self.showSyncStatus("\(conflicts.count) 项 iOS 调整冲突 · 点击「更多」处理")}else if !self.iosFrames.isFresh{self.showSyncStatus("同步失败 · 工作台画面连接中断，正在重连")}else{self.showSyncStatus(acks["ios"]==rev && acks["web"]==rev ? "已同步 · HTML 与原生 iOS 内容一致" : "同步中 · 正在更新两端")}
+   if !problem.isEmpty{self.showSyncStatus("同步失败 · 保留上一版 · "+problem)}else if !conflicts.isEmpty{self.showSyncStatus("\(conflicts.count) 项两端修改差异 · 导出保留 iOS；点击查看冲突详情")}else if !self.iosFrames.isFresh{self.showSyncStatus("同步失败 · 工作台画面连接中断，正在重连")}else{self.showSyncStatus(acks["ios"]==rev && acks["web"]==rev ? "已同步 · HTML 与原生 iOS 内容一致" : "同步中 · 正在更新两端")}
+   if status["active"] as? String == self.project?.id{self.updateSplashEditorButton(status["editingPage"] as? String != nil)}
    guard rev != self.observedRevision,let p=self.project,status["active"] as? String==p.id else{return}
    fetching=true
    Bridge.shared.request("/editor-state?id=\(p.id)&compile=\(p.compileRevision ?? "")"){[weak self]result in

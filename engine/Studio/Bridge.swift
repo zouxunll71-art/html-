@@ -13,11 +13,13 @@ final class Bridge {
    DispatchQueue.main.async{completion(result)}
   }.resume()
  }
+ private let decodedImages=AssetImageCache(megabytes:64)
  private var imageWaiters:[String:[(UIImage?)->Void]]=[:]
  private var imageQueue:[(String,String,Int)]=[]
  private var imageActive=0
  func image(_ path:String,maxPixels:Int=1024,completion:@escaping(UIImage?)->Void){
   let key=path+"#"+String(maxPixels)
+  if let cached=decodedImages[key]{DispatchQueue.main.async{completion(cached)};return}
   if imageWaiters[key] != nil{imageWaiters[key]?.append(completion);return}
   imageWaiters[key]=[completion];imageQueue.append((key,path,maxPixels));pumpImages()
  }
@@ -25,6 +27,7 @@ final class Bridge {
   while imageActive<4 && !imageQueue.isEmpty {
    let (key,path,pixels)=imageQueue.removeFirst();imageActive+=1
    let finish:(UIImage?)->Void={image in
+    if let image=image{self.decodedImages[key]=image}
     let callbacks=self.imageWaiters.removeValue(forKey:key) ?? [];self.imageActive-=1
     callbacks.forEach{$0(image)};self.pumpImages()
    }

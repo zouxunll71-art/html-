@@ -4,7 +4,7 @@ extension StudioController {
  func setupSourceBrowser(){
   inspectorTabs.selectedSegmentIndex=0;inspectorTabs.addAction(UIAction{[weak self]_ in self?.showInspectorMode()},for:.valueChanged);view.addSubview(inspectorTabs);view.addSubview(sourceBrowser);setupIOSBrowser()
   sourceBrowser.thumbnail={[weak self] n in self?.sourceThumbnail(n)}
-  sourceBrowser.onSelect={[weak self] id in self?.highlightSource(id)}
+  sourceBrowser.onSelect={[weak self] id in self?.chooseSource(id)}
   sourceBrowser.onCopy={[weak self] id,children in self?.copySource(id,children:children)}
   sourceBrowser.onDrop={[weak self]id,point,window in guard let self=self else{return};let location=self.left.convert(point,from:window);guard self.left.screenRect.contains(location) else{self.setStatus("请把资源拖到左侧 iOS 手机里面");return};self.copySource(id,point:self.left.logical(location))}
   showInspectorMode()
@@ -14,7 +14,14 @@ extension StudioController {
   let value=(try? JSONSerialization.data(withJSONObject:[id as Any? ?? NSNull()])).flatMap{String(data:$0,encoding:.utf8)} ?? "[null]"
   web.evaluateJavaScript("window.studioSelect?.(\(value)[0])",completionHandler:nil)
  }
- func chooseSource(_ id:String){inspectorTabs.selectedSegmentIndex=1;selected=nil;multiSelection=[];left.selected=nil;left.selectedIDs=[];highlightSource(id);showInspectorMode();loadSourceLayers(focus:id)}
+ func chooseSource(_ id:String){
+  guard !running else{return}
+  // Match the source identity only; shared images or labels do not imply the same layer.
+  let match=page?.nodes.first(where:{$0.id==id && !$0.hidden && !$0.locked})
+  selected=match?.id;multiSelection=[];isolatedSelection=match?.id
+  left.selected=selected;left.selectedIDs=selectionIDs;layers.reloadData()
+  inspectorTabs.selectedSegmentIndex=1;highlightSource(id);showInspectorMode();loadSourceLayers(focus:id)
+ }
  func loadSourceLayers(focus:String?=nil){
   guard let p=project else{return};if let focus=focus{pendingSourceFocus=focus};guard !sourceLoading else{return};sourceLoading=true
   Bridge.shared.request("/source-layers"){[weak self]result in
