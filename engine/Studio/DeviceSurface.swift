@@ -18,6 +18,7 @@ final class DeviceSurface:UIView,UIDragInteractionDelegate,UIDropInteractionDele
  private var simulatorDirect:Bool {directSimulatorInput && operate && !isSource}
  private var simulatorWheel:UIPanGestureRecognizer!
  private var wheelTouch=false;private var wheelOrigin=CGPoint.zero
+ var onModifiedSelect:((String?,Bool)->Void)?
  var onSelect:((String?)->Void)?;var onMove:((String,CGPoint,String,Bool)->Void)?;var onTap:((CGPoint)->Void)?;var onSwipe:((CGPoint,CGPoint)->Void)?;var onDrop:((String,CGPoint)->Void)?
  var dragStart=CGPoint.zero;var action="move";private var resizingGroup=false;var changed=false
  override init(frame:CGRect){super.init(frame:frame)
@@ -134,7 +135,7 @@ final class DeviceSurface:UIView,UIDragInteractionDelegate,UIDropInteractionDele
    return ap==bp ? a.offset<b.offset : ap<bp
   }?.element
  }
- @objc func tap(_ g:UITapGestureRecognizer){let p=logical(g.location(in:self));if operate{onTap?(p)}else{selected=hit(p)?.id;onSelect?(selected)}}
+ @objc func tap(_ g:UITapGestureRecognizer){let p=logical(g.location(in:self));if operate{onTap?(p)}else{selected=hit(p)?.id;if let modified=onModifiedSelect{modified(selected,g.modifierFlags.contains(.command))}else{onSelect?(selected)}}}
  // Wheel/trackpad scrolling never enters the layer move/resize/rotate path.
  @objc func wheel(_ g:UIPanGestureRecognizer){
   let t=g.translation(in:self),point=g.location(in:self),scale=logicalSize.width/screenRect.width

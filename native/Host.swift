@@ -116,6 +116,7 @@ final class ClientHostController:UIViewController,WKScriptMessageHandler,WKNavig
    guard let button=child as? UIButton else{continue}
    let title=button.configuration?.title ?? button.title(for:.normal) ?? "工具"
    for constraint in button.constraints where constraint.firstAttribute == .height{constraint.isActive=false}
+   button.accessibilityHint=title=="多选" ? "也可以按住 Command 点击资源进行多选" : nil
    button.accessibilityLabel=title=="＋" ? "放大选中资源" : title=="−" ? "缩小选中资源" : title;button.setTitle(title,for:.normal)
    button.configuration?.image=nil;button.configuration?.title=title
    button.configuration?.contentInsets=NSDirectionalEdgeInsets(top:3,leading:2,bottom:3,trailing:2)

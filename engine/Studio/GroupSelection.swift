@@ -9,12 +9,12 @@ extension StudioController {
   return n.groupID.isEmpty ? [n.id] : Set(available.filter{$0.groupID==n.groupID}.map(\.id))
  }
  func refreshSelection(){left.selected=selected;left.selectedIDs=selectionIDs;layers.reloadData();renderInspector()}
- func chooseLayer(_ id:String?){
+ func chooseLayer(_ id:String?,additive:Bool=false){
   claimEditorKeyboard()
   let browsing=inspectorTabs.selectedSegmentIndex==2
   if id != selected{isolatedSelection=nil}
   if !browsing{inspectorTabs.selectedSegmentIndex=0};showInspectorMode();highlightSource(nil);right.selected=nil
-  if (left.tool=="multi" || left.tool=="clickMulti"),let id=id {
+  if (additive || left.tool=="multi" || left.tool=="clickMulti"),let id=id {
    var ids=selectionIDs
    if ids.contains(id){ids.remove(id)}else{ids.insert(id)}
    selected=ids.sorted().first;multiSelection=ids

@@ -75,6 +75,7 @@ final class StudioController:UIViewController,UITableViewDataSource,UITableViewD
   leftTools.axis = .horizontal;leftTools.spacing=7;leftTools.distribution = .fillEqually
   [button("↶ 上一步",{[weak self]in self?.undo()}),button("↷ 下一步",{[weak self]in self?.redo()}),button("＋ 文字",{[weak self] in self?.addText()}),button("＋ 色块",{[weak self] in self?.addShape()})].forEach{leftTools.addArrangedSubview($0)}
   left.onSelect={[weak self] id in self?.chooseLayer(id)}
+  left.onModifiedSelect={[weak self] id,additive in self?.chooseLayer(id,additive:additive)}
   left.onMarquee={[weak self] rect in self?.selectRegion(rect)}
   left.onMove={[weak self] id,delta,kind,end in self?.move(id,delta,kind,end)}
   left.onDrop={[weak self] payload,point in self?.drop(payload,point)}
