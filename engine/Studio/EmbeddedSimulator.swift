@@ -3,6 +3,7 @@ import UIKit
 extension StudioController {
  func configureEmbeddedSimulator(){
   left.directSimulatorInput=true
+  left.onKeyboard={[weak self]event in guard let self=self,self.running,self.simulatorInput.ready,self.iosFrames.isFresh else{return};self.simulatorInput.enqueue(event)}
   left.onPointer={[weak self]kind,point in self?.sendSimulatorPointer(kind,point)}
   simulatorInput.onFailure={[weak self]message in
    guard let self=self,self.running else{return};self.setStatus("模拟器直接操作未连接");self.showMessage("模拟器操作连接中断",message+"\n\n可以在手机下方选择「模拟器 → 重新连接操作」，或「打开独立模拟器」继续操作。")

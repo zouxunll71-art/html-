@@ -1,5 +1,5 @@
 import UIKit
-final class DeviceSurface:UIView,UIDragInteractionDelegate,UIDropInteractionDelegate,UIGestureRecognizerDelegate {
+final class DeviceSurface:UIView,UIKeyInput,UIDragInteractionDelegate,UIDropInteractionDelegate,UIGestureRecognizerDelegate {
  let video=AndroidVideo();let chrome=DeviceChrome();let screenMask=CALayer();let imageView=UIImageView();let overlay=UIView();let selectionClip=UIView();let selectionMask=CAShapeLayer();let selection=UIView();let handle=UIView();let rotateHandle=UIView()
  let guides=CAShapeLayer()
  private var memberOutlines:[String:CAShapeLayer]=[:]
@@ -14,6 +14,11 @@ final class DeviceSurface:UIView,UIDragInteractionDelegate,UIDropInteractionDele
  private var sourceTouch=false;private var pointerOrigin:CGPoint?
  private var tapGesture:UITapGestureRecognizer!;private var panGesture:UIPanGestureRecognizer!;private var scrollGesture:UIPanGestureRecognizer!;private var dragTarget:String?;private var resourceDrag:UIDragInteraction!
  var previewAsset:((String)->UIImage?)?
+ var onKeyboard:(([String:Any])->Void)?
+ var hasText:Bool {simulatorDirect}
+ override var canBecomeFirstResponder:Bool {simulatorDirect}
+ func insertText(_ text:String){guard simulatorDirect,!text.isEmpty else{return};if text=="\n" || text=="\r"{onKeyboard?(["kind":"key","code":40])}else{onKeyboard?(["kind":"text","text":text])}}
+ func deleteBackward(){guard simulatorDirect else{return};onKeyboard?(["kind":"key","code":42])}
  var onPointer:((String,CGPoint)->Void)?
  var directSimulatorInput=false {didSet{updateInputMode()}}
  private var simulatorDirect:Bool {directSimulatorInput && operate && !isSource}
@@ -37,6 +42,7 @@ final class DeviceSurface:UIView,UIDragInteractionDelegate,UIDropInteractionDele
   accessibilityLabel="模拟器实时画面"
  }
  private func updateInputMode(){
+  if !simulatorDirect && isFirstResponder{resignFirstResponder()}
   let direct=webHosted || simulatorDirect
   tapGesture?.isEnabled = !direct;panGesture?.isEnabled = !direct;resourceDrag?.isEnabled = isSource && !operate
   scrollGesture?.isEnabled = !direct && !isSource
@@ -46,7 +52,7 @@ final class DeviceSurface:UIView,UIDragInteractionDelegate,UIDropInteractionDele
  override func touchesBegan(_ touches:Set<UITouch>,with event:UIEvent?){
   if simulatorDirect,let touch=touches.first{
    let point=touch.location(in:self);guard screenRect.contains(point)else{return}
-   cancelSimulatorGesture();sourceTouch=true;dragStart=logical(point);onPointer?("down",dragStart);return
+   becomeFirstResponder();cancelSimulatorGesture();sourceTouch=true;dragStart=logical(point);onPointer?("down",dragStart);return
   }
   if (!isSource || !operate),let touch=touches.first{pointerOrigin=logical(touch.location(in:self));if operate && !isSource{operateOrigin=pointerOrigin;operatePanHandled=false}}
   guard isSource && operate,let touch=touches.first else{super.touchesBegan(touches,with:event);return}

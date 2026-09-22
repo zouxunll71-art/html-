@@ -342,7 +342,7 @@ final class StudioController:UIViewController,UITableViewDataSource,UITableViewD
   // WebKit handles Ctrl+Q itself, with DOM/IME-aware input checks.
   return !(responder is UITextInput) && !(responder is UISearchBar) && responder !== web && !responder.isDescendant(of:web)
  }
- override func canPerformAction(_ action:Selector,withSender sender:Any?)->Bool{if action == #selector(keyEditorTool(_:)){return !running && project != nil && canToggleModeFromKeyboard};if action == #selector(keyNudge(_:)){return canNudge};if action == #selector(keyToggleMode){return canToggleModeFromKeyboard};return super.canPerformAction(action,withSender:sender)}
+ override func canPerformAction(_ action:Selector,withSender sender:Any?)->Bool{if action == #selector(keyDelete){return !running && canToggleModeFromKeyboard};if action == #selector(keyEditorTool(_:)){return !running && project != nil && canToggleModeFromKeyboard};if action == #selector(keyNudge(_:)){return canNudge};if action == #selector(keyToggleMode){return canToggleModeFromKeyboard};return super.canPerformAction(action,withSender:sender)}
  func selectToolShortcut(_ tool:String){guard !running,project != nil,!historyGesture,presentedViewController==nil,["move","resize","rotate"].contains(tool) else{return};setTool(tool)}
  @objc func keyEditorTool(_ command:UIKeyCommand){guard canToggleModeFromKeyboard,let tool=["a":"move","s":"resize","d":"rotate"][command.input ?? ""] else{return};selectToolShortcut(tool)}
  var editorToolCommands:[UIKeyCommand]{[("a","移动"),("s","缩放"),("d","旋转")].map{input,title in let command=UIKeyCommand(title:title,action:#selector(keyEditorTool(_:)),input:input,modifierFlags:.control);command.wantsPriorityOverSystemBehavior=true;return command}}
