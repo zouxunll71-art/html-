@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import host_export
 import json,os,time,uuid,hashlib,threading,subprocess,shutil,mimetypes,copy,traceback,sys,signal,atexit
 from pathlib import Path
 from http.server import ThreadingHTTPServer,BaseHTTPRequestHandler
@@ -227,6 +228,7 @@ def export(r,progress=lambda stage,percent:None):
  name=''.join(c if c not in '/\\:' else '-' for c in r['model']['name']).strip('. ') or 'NativeApp'
  source=Path(r['source']).resolve()
  bundle=source.parent if source.name=='HTML' and source.parent.name=='HTMLNativeStudio' else source if source.name=='HTMLNativeStudio' else source/'HTMLNativeStudio'
+ host_plan=host_export.inspect(bundle)
  (bundle/'iOS').mkdir(parents=True,exist_ok=True)
  if source != bundle/'HTML' and not (bundle/'HTML').exists():
   shutil.copytree(source,bundle/'HTML',ignore=shutil.ignore_patterns('HTMLNativeStudio','HTML','iOS','.git','node_modules','build','.DS_Store'))
@@ -244,7 +246,11 @@ def export(r,progress=lambda stage,percent:None):
  except Exception:
   if staging.exists():shutil.rmtree(staging)
   raise
- return str(out)
+ if host_plan:
+  progress('迁移到外层 Xcode 工程（保留工程配置）',96)
+  destination=host_export.migrate(host_plan,out,r['model']['ios']['classPrefix'])
+ else:destination=str(out)
+ return destination
 def finish_ios_run(pid):
  with LOCK:
   if ACTIVE!=pid:return {'projectChanged':True}

@@ -18,6 +18,10 @@ export function directoryInput(value){
 }
 export function isDirectory(dir){try{return fs.statSync(dir).isDirectory()}catch{return false}}
 export function workingDirectory(conversation,project){
+ if(project?.nativePreview && isDirectory(project.previewSourcePath)){
+  const source=pathKey(project.previewSourcePath);
+  return path.basename(source)==='HTML' && path.basename(path.dirname(source))==='HTMLNativeStudio' ? path.dirname(source) : source;
+ }
  if(isDirectory(conversation.sourcePath))return pathKey(conversation.sourcePath);
  if(project&&isDirectory(project.sourcePath))return pathKey(project.sourcePath);
  throw new Error('对话的工作目录已移动或不存在，请先重新关联项目文件夹');

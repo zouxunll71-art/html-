@@ -88,3 +88,12 @@ GitHub 私有仓库只有受邀用户可以下载；公开仓库可供所有人�
 
 ### 移动手势
 “移动”工具在已有选区时固定移动该选区，包含多选成员之间的空隙；拖动过程中不重新命中底层资源，也不触发缩放或旋转手柄。鼠标拖动与滚轮/触控板滚动使用独立识别器，拖动结束不触发点击取消选择。单击空白仍可取消选择。此规则适用于所有项目。
+
+### 导出到自己创建的 Xcode 空工程
+推荐结构：外层放你的 `.xcodeproj` 和应用源码目录；同层的 `HTMLNativeStudio/HTML` 是预览源码，`HTMLNativeStudio/iOS` 保存导出包、迁移清单与备份。日常工作目录限制在 HTMLNativeStudio 内，开发、预览与同步不会迁移到外层。
+
+点击导出时，系统先在 HTMLNativeStudio/iOS 生成完整成品，然后接入外层工程：生成代码、图片、字体与本地化文件放进应用源码目录的 `StudioGenerated`；空白 `ViewController.swift` 接入成品运行页面。外层 Xcode 工程文件、签名、Bundle ID、构建设置、Info.plist、AppDelegate、SceneDelegate、Storyboard、AppIcon 保持不变。成品使用随包资源，不包含工作台编辑工具，也不连接工作台同步服务。
+
+导出后工作区仍可编辑，外层成品不会自动变化。再次点击导出才替换上次生成的代码和资源，并移除过期生成文件；备份保存在 HTMLNativeStudio/iOS/HostBackups。如果你手动改过外层生成代码，导出会停止，避免静默覆盖。不要直接删除迁移清单。
+
+当前自动接入支持截图所示的 UIKit Storyboard 空工程：唯一 App target、一个 Xcode 文件夹同步源码目录，以及默认的 ViewController 启动页。多个 target、旧式手动文件引用、SwiftUI 或已自定义的启动页会明确报错，外层不作修改。没有外层 Xcode 工程的项目仍导出独立工程。权限和其他工程配置由你在 Xcode 中管理，系统不覆盖它们。

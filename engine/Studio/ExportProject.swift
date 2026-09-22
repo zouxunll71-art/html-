@@ -16,7 +16,7 @@ extension StudioController {
     let data=try result.get();guard let state=try JSONSerialization.jsonObject(with:data) as? [String:Any] else{self.finishExport("导出状态不可读");return}
     if state["state"] as? String=="failed"{self.finishExport(state["error"] as? String ?? "导出未完成");return}
     if state["state"] as? String=="done",let path=state["path"] as? String{
-     self.exportJobID=nil;self.buttons[6].isEnabled=true;UIPasteboard.general.string=path;self.setStatus("完整工程已导出，路径已复制");self.showMessage("iOS 工程已导出",path+"\n\n包含全部声明页面、弹窗、资源与动作；尚未执行 Xcode 构建。");return
+     self.exportJobID=nil;self.buttons[6].isEnabled=true;UIPasteboard.general.string=path;self.setStatus("成品已导出，目标路径已复制");self.showMessage("iOS 成品已导出",path+"\n\n若已接入外层空工程，代码和资源已迁入，原工程配置保持不变。成品为运行界面，不含编辑工具；工作区仍可编辑，外层成品不随编辑自动变化。尚未执行目标工程构建。");return
     }
     self.setStatus("正在"+(state["stage"] as? String ?? "导出工程")+"（\(state["progress"] as? Int ?? 0)%）")
     DispatchQueue.main.asyncAfter(deadline:.now()+0.7){[weak self] in self?.pollExport(job)}

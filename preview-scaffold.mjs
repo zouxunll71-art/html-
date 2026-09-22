@@ -12,14 +12,18 @@ export async function ensurePreviewSource(projectRoot,name,studioRoot){
   if(compatible(root))return root;
   const base=path.basename(root)==='HTMLNativeStudio'?root:path.join(root,'HTMLNativeStudio');
   const dest=path.join(base,'HTML');
+  for(const folder of [base,dest,path.join(base,'iOS')])if(fs.lstatSync(folder,{throwIfNoEntry:false})?.isSymbolicLink())throw new Error('工作区目录不能是指向外部的符号链接');
   if(compatible(base))return base;
   if(compatible(dest))return dest;
-  if(fs.existsSync(base)&&base!==root){throw new Error('HTMLNativeStudio 文件夹已存在且不是工作台项目，请先重命名该文件夹再接入；原文件未改动');}
-  if(fs.existsSync(dest)||fs.lstatSync?.(dest,{throwIfNoEntry:false})){
+  const createdBase=!fs.existsSync(base);
+  if(!createdBase&&base!==root&&fs.readdirSync(base).some(name=>!['HTML','iOS'].includes(name))){throw new Error('HTMLNativeStudio 文件夹已存在且不是工作台项目，请先重命名该文件夹再接入；原文件未改动');}
+  const emptyHTML=fs.existsSync(dest)&&!fs.lstatSync(dest).isSymbolicLink()&&fs.statSync(dest).isDirectory()&&fs.readdirSync(dest).length===0;
+  if(!emptyHTML&&(fs.existsSync(dest)||fs.lstatSync?.(dest,{throwIfNoEntry:false}))){
    if(fs.lstatSync(dest).isSymbolicLink()||!compatible(dest))throw new Error('HTMLNativeStudio 文件夹已存在且不是工作台项目，请先重命名该文件夹再接入；原文件未改动');
    return dest;
   }
-  const stage=fs.mkdtempSync(path.join(root,'.html-native-setup-'));
+  fs.mkdirSync(base,{recursive:true});
+  const stage=fs.mkdtempSync(path.join(base,'.html-native-setup-'));
   try{
    await exec('/usr/bin/python3',['-c',String.raw`
 import sys,json,shutil,uuid
@@ -40,9 +44,10 @@ authoring.install(stage)
 compile_project(stage)
 `,studioRoot,stage,String(name||'New App')],{timeout:60000,maxBuffer:1024*1024});
    // Recheck after async generation; never replace user files.
+   if(emptyHTML&&fs.existsSync(dest)&&fs.readdirSync(dest).length===0)fs.rmdirSync(dest);
    if(fs.existsSync(dest))throw new Error('工作台目录已被创建，请重新接入');
-   if(base===root){fs.renameSync(stage,dest);fs.mkdirSync(path.join(base,'iOS'),{recursive:true});}else{const bundle=fs.mkdtempSync(path.join(root,'.html-native-bundle-'));try{fs.renameSync(stage,path.join(bundle,'HTML'));fs.mkdirSync(path.join(bundle,'iOS'));fs.renameSync(bundle,base)}finally{fs.rmSync(bundle,{recursive:true,force:true})}}return dest;
-  }finally{fs.rmSync(stage,{recursive:true,force:true})}
+   fs.renameSync(stage,dest);fs.mkdirSync(path.join(base,'iOS'),{recursive:true});return dest;
+  }finally{fs.rmSync(stage,{recursive:true,force:true});if(createdBase&&fs.existsSync(base)&&fs.readdirSync(base).length===0)fs.rmdirSync(base)}
  })();pending.set(root,task);
  try{return await task}finally{pending.delete(root)}
 }

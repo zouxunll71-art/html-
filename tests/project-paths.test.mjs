@@ -15,3 +15,10 @@ test('中文、空格、file URL 和快捷路径解析到同一项目',()=>{
  const sub=path.join(real,'worktree');fs.mkdirSync(sub);assert.equal(workingDirectory({sourcePath:sub},{sourcePath:real}),pathKey(sub));assert.throws(()=>workingDirectory({sourcePath:'/missing-project'}),/不存在/);
  }finally{fs.rmSync(root,{recursive:true,force:true})}
 });
+test('native preview tasks use the inner workspace, not the outer Xcode host',()=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'studio-boundary-'));
+ try{
+  const workspace=path.join(root,'HTMLNativeStudio'),source=path.join(workspace,'HTML');fs.mkdirSync(source,{recursive:true});
+  assert.equal(workingDirectory({sourcePath:root},{sourcePath:root,nativePreview:true,previewSourcePath:source}),fs.realpathSync(workspace));
+ }finally{fs.rmSync(root,{recursive:true,force:true})}
+});

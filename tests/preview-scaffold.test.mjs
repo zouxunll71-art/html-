@@ -31,3 +31,10 @@ test('conflicting directory and failed installation leave project intact',async(
   assert.deepEqual(fs.readdirSync(root),[]);
  }finally{fs.rmSync(root,{recursive:true,force:true})}
 });
+test('precreated HTML and iOS folders are accepted without touching outer files',{skip:!fs.existsSync(system)},async()=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'studio-empty-folders-'));
+ try{
+  fs.mkdirSync(path.join(root,'HTMLNativeStudio/HTML'),{recursive:true});fs.mkdirSync(path.join(root,'HTMLNativeStudio/iOS'));fs.writeFileSync(path.join(root,'keep'),'unchanged');
+  const source=await ensurePreviewSource(root,'QA',system);assert.ok(fs.existsSync(path.join(source,'app.json')));assert.equal(fs.readFileSync(path.join(root,'keep'),'utf8'),'unchanged');
+ }finally{fs.rmSync(root,{recursive:true,force:true})}
+});

@@ -109,12 +109,12 @@ async function resume(id) {
   const cwd=workingDirectory(c,linkedProject);if(cwd!==c.sourcePath){c.previousSourcePath=c.sourcePath;c.sourcePath=cwd;loaded.delete(id);save();}
   if(loaded.has(id))return id;
   const linked=sidebarSnapshot.projects.find(p=>p.id===c.projectId&&p.nativePreview);
-  const previewInstructions=linked?instructions+'\n手机预览源码目录：'+(linked.previewSourcePath||linked.sourcePath)+'。先阅读此目录 AGENTS.md；外层工程保持独立。':undefined;
+  const previewInstructions=linked?instructions+'\n手机预览源码目录：'+(linked.previewSourcePath||linked.sourcePath)+'。先阅读此目录 AGENTS.md；工作范围仅限 HTMLNativeStudio 内。未点击系统导出前，禁止修改外层 Xcode 工程、应用源码、资源、Info.plist、签名和构建配置；不得自行执行迁移。导出由工作台负责。':undefined;
   try{await rpc.call('thread/resume',{threadId:id,cwd:c.sourcePath,approvalPolicy:'never',sandbox:'danger-full-access',excludeTurns:true,...(previewInstructions?{developerInstructions:previewInstructions}:{})});}
   catch(error){
     // App Server materializes history on the first turn; an unused draft has no rollout after restart.
     if(!/no rollout found/.test(error.message) || !(c.hasStarted===false || c.title==='新对话'))throw error;
-    const result=await rpc.call('thread/start',{cwd:c.sourcePath,approvalPolicy:'never',sandbox:'danger-full-access',developerInstructions:c.external?undefined:instructions,serviceName:'html_native_studio_client',ephemeral:false});
+    const result=await rpc.call('thread/start',{cwd:c.sourcePath,approvalPolicy:'never',sandbox:'danger-full-access',developerInstructions:previewInstructions ?? (c.external?undefined:instructions),serviceName:'html_native_studio_client',ephemeral:false});
     c.id=result.thread.id;c.hasStarted=false;if(registry.selectedThread===id)registry.selectedThread=c.id;save();
   }
   loaded.add(c.id);return c.id;
@@ -138,8 +138,8 @@ async function createConversation(projectId) {
   const p = await project(projectId); await activate(projectId); await rpc.start();
   await capabilities.read(p.sourcePath);
   if(!p.codexId){const imported=await rpc.call('project/import',{name:p.name,roots:[{path:p.sourcePath}],idempotencyKey:'html-studio:'+p.id});p.codexId=imported.project.id;sidebarSync.invalidate();}
-  const result = await rpc.call('thread/start', { cwd: directoryInput(p.sourcePath), projectId:p.codexId, approvalPolicy: 'never', sandbox: 'danger-full-access', developerInstructions: p.nativePreview?instructions+'\n手机预览源码目录：'+(p.previewSourcePath||p.sourcePath)+'。先阅读此目录 AGENTS.md；外层工程保持独立。':undefined, serviceName: 'html_native_studio_client' });
-  const c = { id: result.thread.id, projectId, sourcePath: p.sourcePath, title: '新对话', hasStarted:false, createdAt: Date.now() };
+  const result = await rpc.call('thread/start', { cwd: workingDirectory({},p), projectId:p.codexId, approvalPolicy: 'never', sandbox: 'danger-full-access', developerInstructions: p.nativePreview?instructions+'\n手机预览源码目录：'+(p.previewSourcePath||p.sourcePath)+'。先阅读此目录 AGENTS.md；工作范围仅限 HTMLNativeStudio 内。未点击系统导出前，禁止修改外层 Xcode 工程、应用源码、资源、Info.plist、签名和构建配置；不得自行执行迁移。导出由工作台负责。':undefined, serviceName: 'html_native_studio_client' });
+  const c = { id: result.thread.id, projectId, sourcePath: workingDirectory({},p), title: '新对话', hasStarted:false, createdAt: Date.now() };
   registry.conversations.unshift(c); sidebarSync.invalidate(); registry.selectedThread = c.id; save(); loaded.add(c.id); return { conversation: c, thread: result.thread, model: result.model };
 }
 function json(res, data, code = 200) { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' }); res.end(JSON.stringify(data)); }
