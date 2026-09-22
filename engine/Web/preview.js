@@ -47,9 +47,9 @@ renderNativeChrome(p,page);processNativeEffects(p);window.studioSelect(sourceSel
 async function poll(force=false){if(busy)return;busy=true;try{const p=await api('/runtime?side=web&after='+(force?-1:revision));if(p.model){revision=p.revision;render(p)}error.style.display='none'}catch(e){error.textContent=e.message;error.style.display='block'}finally{busy=false}}
 setInterval(poll,150);function resizePhone(){document.getElementById('phone-stage').style.transform=`scale(${Math.min(innerWidth/456,innerHeight/910)})`}addEventListener('resize',resizePhone);resizePhone();poll();
 
-// Command+Q toggles studio mode, but never steals a character from an editable field or IME.
+// Command+W toggles studio mode, but never steals a character from an editable field or IME.
 document.addEventListener('keydown',event=>{
- if(event.code!=='KeyQ'||!event.metaKey||event.repeat||event.isComposing||event.ctrlKey||event.altKey||event.shiftKey)return;
+ if(event.code!=='KeyW'||!event.metaKey||event.repeat||event.isComposing||event.ctrlKey||event.altKey||event.shiftKey)return;
  const element=document.activeElement;
  if(element?.isContentEditable||((element?.tagName==='INPUT'||element?.tagName==='TEXTAREA')&&!element.readOnly&&!element.disabled))return;
  if(!window.webkit?.messageHandlers.studio)return;

@@ -655,7 +655,7 @@ for(const [id,running] of [['top-edit-mode',false],['top-run-mode',true]])$(id).
 
 // Keep ordinary typing and IME input free of mode-switch shortcuts.
 document.addEventListener('keydown',event=>{
- if(event.code!=='KeyQ'||!event.metaKey||event.ctrlKey||event.altKey||event.shiftKey||event.repeat||event.isComposing)return;
+ if(event.code!=='KeyW'||!event.metaKey||event.ctrlKey||event.altKey||event.shiftKey||event.repeat||event.isComposing)return;
  if($('dialog').open||window.imageViewerActive||window.annotationActive)return;
  event.preventDefault();event.stopPropagation();$(state.editing?'top-run-mode':'top-edit-mode').click();
 },true);

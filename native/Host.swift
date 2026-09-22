@@ -31,7 +31,7 @@ final class ClientHostController:UIViewController,WKScriptMessageHandler,WKNavig
  var mirrorBusy=false
  @objc func saveWorkbenchLayout(){guard embedded,!editor.historyGesture else{return};editor.save()}
  @objc func toggleWorkbenchMode(){guard embedded else{return};editor.switchRunMode()}
- override var keyCommands:[UIKeyCommand]?{let paste=UIKeyCommand(title:"粘贴",action:#selector(pasteClipboardShortcut),input:"v",modifierFlags:.command);paste.wantsPriorityOverSystemBehavior=true;let mode=UIKeyCommand(title:"运行 / 编辑",action:#selector(toggleWorkbenchMode),input:"q",modifierFlags:.command);mode.wantsPriorityOverSystemBehavior=true;let save=UIKeyCommand(title:"保存布局",action:#selector(saveWorkbenchLayout),input:"s",modifierFlags:.command);save.wantsPriorityOverSystemBehavior=true;return [paste,mode,save]}
+ override var keyCommands:[UIKeyCommand]?{let paste=UIKeyCommand(title:"粘贴",action:#selector(pasteClipboardShortcut),input:"v",modifierFlags:.command);paste.wantsPriorityOverSystemBehavior=true;let mode=UIKeyCommand(title:"运行 / 编辑",action:#selector(toggleWorkbenchMode),input:"w",modifierFlags:.command);mode.wantsPriorityOverSystemBehavior=true;let save=UIKeyCommand(title:"保存布局",action:#selector(saveWorkbenchLayout),input:"s",modifierFlags:.command);save.wantsPriorityOverSystemBehavior=true;return [paste,mode,save]}
  @objc func pasteClipboardShortcut(){web.evaluateJavaScript("document.activeElement?.id === 'prompt'"){[weak self] value,_ in
   guard let self=self else{return};guard value as? Bool == true else{self.web.paste(nil);return}
   if self.web.pasteImage?() != true,let text=UIPasteboard.general.string,let data=try? JSONSerialization.data(withJSONObject:[text]),let json=String(data:data,encoding:.utf8){self.web.evaluateJavaScript("window.receiveClipboardText?.(\(json)[0])",completionHandler:nil)}
@@ -258,12 +258,17 @@ final class ClientHostController:UIViewController,WKScriptMessageHandler,WKNavig
 }
 @main final class AppDelegate:UIResponder,UIApplicationDelegate {
  var window:UIWindow?
+ @objc func toggleWorkbenchMode(){(window?.rootViewController as? ClientHostController)?.toggleWorkbenchMode()}
  override func buildMenu(with builder:UIMenuBuilder){
   super.buildMenu(with:builder)
-  builder.replaceChildren(ofMenu:.application){children in children.map{element in
-   if let command=element as? UIKeyCommand,command.input=="q",command.modifierFlags == .command,let action=command.action{return UICommand(title:command.title,image:command.image,action:action,propertyList:command.propertyList)}
+  // Replace the menu shortcut as well as the responder shortcut: macOS otherwise closes the window first.
+  builder.replaceChildren(ofMenu:.close){children in children.map{element in
+   if let command=element as? UIKeyCommand,command.input=="w",command.modifierFlags == .command,let action=command.action{return UICommand(title:command.title,image:command.image,action:action,propertyList:command.propertyList)}
    return element
   }}
+  let mode=UIKeyCommand(title:"运行 / 编辑",action:#selector(toggleWorkbenchMode),input:"w",modifierFlags:.command)
+  mode.wantsPriorityOverSystemBehavior=true
+  builder.insertChild(UIMenu(title:"",options:.displayInline,children:[mode]),atStartOfMenu:.file)
   builder.replaceChildren(ofMenu:.standardEdit){children in children.map{element in
    if let command=element as? UICommand,command.action == #selector(UIResponderStandardEditActions.paste(_:)){return UIKeyCommand(title:"粘贴",action:#selector(ClientHostController.pasteClipboardShortcut),input:"v",modifierFlags:.command)}
    return element

@@ -339,7 +339,7 @@ final class StudioController:UIViewController,UITableViewDataSource,UITableViewD
   }
   if typing(view.window ?? view){return false}
   guard let responder=activeResponder(in:view.window ?? view) else{return true}
-  // WebKit handles Command+Q itself, with DOM/IME-aware input checks.
+  // WebKit handles Command+W itself, with DOM/IME-aware input checks.
   return !(responder is UITextInput) && !(responder is UISearchBar) && responder !== web && !responder.isDescendant(of:web)
  }
  override func canPerformAction(_ action:Selector,withSender sender:Any?)->Bool{if action == #selector(keyDelete){return !running && canToggleModeFromKeyboard};if action == #selector(keyEditorTool(_:)){return !running && project != nil && canToggleModeFromKeyboard};if action == #selector(keyNudge(_:)){return canNudge};if action == #selector(keyToggleMode){return canToggleModeFromKeyboard};return super.canPerformAction(action,withSender:sender)}
@@ -347,9 +347,9 @@ final class StudioController:UIViewController,UITableViewDataSource,UITableViewD
  @objc func keyEditorTool(_ command:UIKeyCommand){guard canToggleModeFromKeyboard,let tool=["a":"move","s":"resize","d":"rotate"][command.input ?? ""] else{return};selectToolShortcut(tool)}
  var editorToolCommands:[UIKeyCommand]{[("a","移动"),("s","缩放"),("d","旋转")].map{input,title in let command=UIKeyCommand(title:title,action:#selector(keyEditorTool(_:)),input:input,modifierFlags:input=="s" ? [.command,.shift]:.command);command.wantsPriorityOverSystemBehavior=true;return command}}
  @objc func keyToggleMode(){guard canToggleModeFromKeyboard else{return};switchRunMode()}
- func switchRunMode(){guard presentedViewController==nil,!historyGesture else{return};mode.selectedSegmentIndex=running ? 0:1;toggleRun();setStatus(running ? "运行预览 · 按 Command+Q 返回编辑":"选取与编辑 · 按 Command+Q 运行预览")}
+ func switchRunMode(){guard presentedViewController==nil,!historyGesture else{return};mode.selectedSegmentIndex=running ? 0:1;toggleRun();setStatus(running ? "运行预览 · 按 Command+W 返回编辑":"选取与编辑 · 按 Command+W 运行预览")}
  override var keyCommands:[UIKeyCommand]?{[
-  UIKeyCommand(title:"运行 / 编辑",action:#selector(keyToggleMode),input:"q",modifierFlags:.command),
+  UIKeyCommand(title:"运行 / 编辑",action:#selector(keyToggleMode),input:"w",modifierFlags:.command),
   UIKeyCommand(title:"保存布局",action:#selector(keySave),input:"s",modifierFlags:.command),UIKeyCommand(title:"撤销",action:#selector(keyUndo),input:"z",modifierFlags:.command),UIKeyCommand(title:"重做",action:#selector(keyRedo),input:"z",modifierFlags:[.command,.shift]),UIKeyCommand(title:"删除图层",action:#selector(keyDelete),input:UIKeyCommand.inputDelete,modifierFlags:[])] + nudgeCommands + editorToolCommands}
  override var canBecomeFirstResponder:Bool{true}
  @objc func keySave(){save()};@objc func keyUndo(){undo()};@objc func keyRedo(){redo()};@objc func keyDelete(){if !running && !fields.values.contains(where:{$0.isFirstResponder}){deleteSelected()}}
