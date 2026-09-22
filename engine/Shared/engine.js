@@ -153,6 +153,7 @@ function compose(model,session,overrides={},additions={}){
  }
  page.nodes.push(...extra);return page;
 }
-const API={initial,reduce,frame,compose,editorFrame,applyEditor,expr,clone};global.StudioEngine=API;
+function clipsContent(n){return n.clip===true||n.type==='image'||(n.type==='scroll'&&((n.contentWidth??n.width)>n.width+0.5||(n.contentHeight??n.height)>n.height+0.5))}
+const API={clipsContent,initial,reduce,frame,compose,editorFrame,applyEditor,expr,clone};global.StudioEngine=API;
 if(typeof module!=='undefined')module.exports=API;
 })(typeof globalThis!=='undefined'?globalThis:this);

@@ -15,6 +15,8 @@ struct StudioNode: Codable,Equatable {
  var rotation:CGFloat=0;var opacity:CGFloat=1;var fontSize:CGFloat=16;var fontName="";var fontWeight:CGFloat=400
  var strokeColor="#00000000";var strokeWidth:CGFloat=0;var color="#17212B";var fill="#00000000";var fit="fit";var alignment="left";var anchor="topLeft"
  var isOn=false;var value:CGFloat=0.5;var placeholder="";var options:[String]=[];var locked=false;var hidden=false;var cornerRadius:CGFloat=0;var capPixels:CGFloat=0;var capPoints:CGFloat=13
+ // A layout-only scroll container must not crop content at the safe-area boundary.
+ var clipsContent:Bool { clip == true || type == "image" || (type == "scroll" && ((contentWidth ?? width)>width+0.5 || (contentHeight ?? height)>height+0.5)) }
  var frame:CGRect { get { CGRect(x:x,y:y,width:width,height:height) } set { x=newValue.minX;y=newValue.minY;width=newValue.width;height=newValue.height } }
  enum CodingKeys:String,CodingKey { case symbol,textKey,placeholderKey,selected,parent,gradient,shadow,contentWidth,contentHeight,scrollX,scrollY,clip,scale,fontFamily,italic,lineHeight,letterSpacing,textSpans,sharedKey,groupID,isOn,value,placeholder,options,strokeColor,strokeWidth,id,name,type,text,asset,x,y,width,height,rotation,opacity,fontSize,fontName,fontWeight,color,fill,fit,alignment,anchor,locked,hidden,cornerRadius,capPixels,capPoints }
  init() {}

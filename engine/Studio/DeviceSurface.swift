@@ -114,7 +114,7 @@ final class DeviceSurface:UIView,UIDragInteractionDelegate,UIDropInteractionDele
   var rect=CGRect(origin:.zero,size:logicalSize),parent=node.parent,seen=Set<String>()
   while let id=parent,seen.insert(id).inserted,let container=map[id]{
    if container.hidden || container.opacity<=0.01{return .null}
-   if container.type=="scroll" || container.clip==true{rect=rect.intersection(container.frame)}
+   if container.clipsContent{rect=rect.intersection(container.frame)}
    parent=container.parent
   }
   return rect
