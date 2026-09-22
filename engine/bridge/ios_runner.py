@@ -1,8 +1,8 @@
 """User-triggered runtime builds. Never erases a device or removes app data."""
-import copy,fcntl,json,os,subprocess,threading,time,uuid
+import shutil,copy,fcntl,json,os,subprocess,threading,time,uuid
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
-JOBS={};LOCK=threading.RLock();ACTIVE=None
+JOBS={};LOCK=threading.RLock();ACTIVE={}
 
 def status(job):
  with LOCK:
@@ -12,15 +12,14 @@ def status(job):
 def start(project_id,config,finish):
  global ACTIVE
  with LOCK:
-  if ACTIVE and JOBS[ACTIVE]['state']=='running':
-   if JOBS[ACTIVE]['projectID']!=project_id:raise ValueError('另一个项目正在准备 iOS，请等待完成')
-   return ACTIVE
-  job=uuid.uuid4().hex;ACTIVE=job
+  previous=ACTIVE.get(project_id)
+  if previous and JOBS[previous]['state']=='running':return previous
+  job=uuid.uuid4().hex;ACTIVE[project_id]=job
   JOBS[job]={'id':job,'projectID':project_id,'state':'running','stage':'等待构建','progress':0,'started':time.time(),'logPath':str(ROOT/'artifacts'/('run-ios-'+job+'.log'))}
  threading.Thread(target=run,args=(job,config,finish),daemon=True).start();return job
 
 def run(job,config,finish):
- env={**os.environ,'DEVELOPER_DIR':config['developerDir']}
+ env={**os.environ,'DEVELOPER_DIR':config['developerDir'],'SIMCTL_CHILD_STUDIO_PROJECT_ID':JOBS[job]['projectID']}
  def update(**values):
   with LOCK:JOBS[job].update(values)
  def command(args,stage,progress,timeout=180,allow_failure=False):
@@ -39,6 +38,7 @@ def run(job,config,finish):
    command(['xcodebuild','-project','HTMLNativeRuntime.xcodeproj','-scheme','HTMLNativeRuntime','-configuration','Debug','-sdk','iphonesimulator','-derivedDataPath','build/runtime','CODE_SIGNING_ALLOWED=NO','build'],'构建 iOS 运行端',20,900)
    runtime=ROOT/'build/runtime/Build/Products/Debug-iphonesimulator/HTMLNativeRuntime.app'
    if not runtime.is_dir():raise ValueError('构建没有生成 iOS App，请查看运行日志')
+   snapshot=ROOT/'build'/('run-ios-'+job+'.app');shutil.copytree(runtime,snapshot);runtime=snapshot
   devices=json.loads(subprocess.check_output(['xcrun','simctl','list','devices','available','--json'],env=env,timeout=20))
   device=next((d for group in devices['devices'].values() for d in group if d['udid']==config['ios']),None)
   if device is None:raise ValueError('工作台指定的 iOS 模拟器不存在，请重新完成安装配置')
@@ -51,3 +51,5 @@ def run(job,config,finish):
   result=finish(JOBS[job]['projectID'])
   update(state='done',stage='iOS 已启动，正在确认两端画面',progress=100,result=result,finished=time.time())
  except Exception as error:update(state='failed',stage='运行未完成',error=str(error),finished=time.time())
+ finally:
+  if 'snapshot' in locals():shutil.rmtree(snapshot,ignore_errors=True)

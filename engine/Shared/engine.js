@@ -52,7 +52,7 @@ function modalPages(model,session){
  }
  return result.reverse();
 }
-function reduce(model,session,event){const s=clone(session);s.modals=modalPages(model,s);if(event.disabled)return s;s.animation=null;s.effects=s.effects||[];const ctx=()=>({...context(s,event.item,event),localization:model.localization,locale:s.locale||'en'});let budget=256;
+function reduce(model,session,event){if(event.requiresValue&&(typeof event.value!=='string'||!event.value.trim()))throw Error('Model save requires a completed work identifier');const s=clone(session);s.modals=modalPages(model,s);if(event.disabled)return s;s.animation=null;s.effects=s.effects||[];const ctx=()=>({...context(s,event.item,event),localization:model.localization,locale:s.locale||'en'});let budget=256;
  function run(steps){for(const a of steps||[]){if(--budget<0)throw Error('Action sequence exceeds 256 steps');const val=()=>expr(a.value,ctx());switch(a.type){
  case 'delay':{const id=String(s.tick+1)+':'+s.effects.length;const effect={type:'delay',duration:a.duration,id};s.pendingEffects=s.pendingEffects||{};s.pendingEffects[id]={...effect,actions:clone(a.actions),item:clone(event.item||{}),sourceParams:clone(ctx().params)};s.effects.push(effect);break}
  case 'openURL':{const url=model.links?.[a.link];if(!url)throw Error('Unknown link '+a.link);s.effects.push({type:'openURL',url,id:String(s.tick+1)+':'+s.effects.length});break}
@@ -103,8 +103,9 @@ function frame(model,session,overrides){const nodes=[],nodeIDs=new Set(),events=
  if(raw.font){if(!assets[raw.font])throw Error('Missing font '+raw.font);n.fontName=assets[raw.font].postscript}
  if(raw.spans){if(raw.spans.some(s=>s.end>n.text.length))throw Error('Rich text span out of range: '+id);n.textSpans=raw.spans;}
  Object.assign(n,patch);if(n.hidden)return;if(nodeIDs.has(n.id))throw Error('Duplicate rendered layer ID: '+n.id);nodeIDs.add(n.id);nodes.push(n);
- events[id]={action:raw.action||'',bind:raw.bind||'',item:c.item||{},sourceParams:c.params||{},disabled:n.disabled};
+ events[id]={action:raw.action||'',bind:raw.bind||'',...(raw['model-asset']?{requiresValue:true}:{}),item:c.item||{},sourceParams:c.params||{},disabled:n.disabled};
  if(typ==='path'){n.points=expr(raw.points,c);n.closed=!!expr(raw.closed,c);validatePoints(n.points);return;}
+ if(typ==='model'&&raw['model-asset']){const a=assets[text(raw['model-asset'],c)];if(!a||a.kind!=='model')throw Error('Missing GLB resource');n.modelAsset=a.id;n.paintOptions=expr(raw['paint-options']||{},c);n.type='image';return;}
  if(typ==='model'){n.mesh=projectRevolve(expr(raw.profile,c),Number(expr(raw.angle||0,c)),Number(expr(raw.elevation||15,c)),n.color);return;}
  if(typ==='text'||typ==='image'||typ.startsWith('native'))return;
  const kids=expanded((raw.children||[]).filter(child=>child.placement!=='viewport-background'),c,id+'/'),pad=st.padding||0,gap=st.gap||0,inner={x:pad,y:pad,w:Math.max(0,n.width-2*pad),h:Math.max(0,n.height-2*pad)};

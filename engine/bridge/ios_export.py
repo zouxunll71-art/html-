@@ -37,6 +37,7 @@ def prepare(record,out,root,asset_dir,progress=lambda stage,percent:None):
  for index,a in enumerate(model['assets']):
   if index%20==0:progress('写入全部图片与字体 '+str(index)+'/'+str(len(model['assets'])),35+int(50*index/max(1,len(model['assets']))))
   source=asset_dir/a['file']
+  if a['kind']=='model':shutil.copy2(source,out/'App/assets'/a['file']);continue
   if a['kind']=='font':shutil.copy2(source,out/'App/assets'/a['file']);continue
   name='img_'+a['id'].split('.')[0];a['catalogName']=name;dest=assets/(name+'.imageset')
   if dest.exists():continue

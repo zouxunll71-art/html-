@@ -173,7 +173,8 @@
         "kind": {
           "enum": [
             "image",
-            "font"
+            "font",
+            "model"
           ]
         }
       }

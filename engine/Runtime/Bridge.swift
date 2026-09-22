@@ -4,6 +4,7 @@ final class Bridge {
  let token=(try? String(contentsOf:Bundle.main.url(forResource:"bridge-token",withExtension:"txt") ?? URL(fileURLWithPath:"/nonexistent")))?.trimmingCharacters(in:.whitespacesAndNewlines) ?? ""
  func request(_ path:String,body:Data?=nil,completion:@escaping(Result<Data,Error>)->Void){
   var r=URLRequest(url:URL(string:base+path)!);r.timeoutInterval=30;r.setValue(token,forHTTPHeaderField:"X-Studio-Token")
+  if let project=ProcessInfo.processInfo.environment["STUDIO_PROJECT_ID"],!project.isEmpty{r.setValue(project,forHTTPHeaderField:"X-Studio-Project")}
   if let body=body{r.httpMethod="POST";r.httpBody=body;r.setValue("application/json",forHTTPHeaderField:"Content-Type")}
   URLSession.shared.dataTask(with:r){data,response,error in
    let result:Result<Data,Error>

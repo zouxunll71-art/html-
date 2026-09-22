@@ -3,6 +3,7 @@ import CoreText
 final class PassThroughContainer:UIView {var acceptsBackgroundTap=false;override func hitTest(_ point:CGPoint,with event:UIEvent?)->UIView?{let target=super.hitTest(point,with:event);return target===self && !acceptsBackgroundTap ? nil:target}}
 final class NativeSceneController:UIViewController,UIScrollViewDelegate,UITextFieldDelegate,UITextViewDelegate,UIGestureRecognizerDelegate {
  var scene:[String:Any]=[:];var views:[String:UIView]=[:];var kinds:[String:String]=[:];var specs:[String:[String:Any]]=[:]
+ var modelLoader:((String,@escaping(Result<Data,Error>)->Void)->Void)?;var paintStore:NativeModelView.Store?;var modelProject="";var editingModels=false {didSet{for view in views.values{(view as? NativeModelView)?.renderer.isUserInteractionEnabled = !editingModels}}}
  var assetProvider:((String)->UIImage?)?;var onEvent:(([String:Any])->Void)?;var applying=false;var animation:UIViewPropertyAnimator?;var lastAnimationID="";var enteringAnimation=false;var animationGhosts=[UIView]()
  var layoutConstraints:[String:[NSLayoutConstraint]]=[:];var contentConstraints:[String:[NSLayoutConstraint]]=[:];var layingOut=false;var renderedWidth:CGFloat = -1;var layoutSize=CGSize.zero
  let fonts=NativeTypography();var scrollWork:[String:DispatchWorkItem]=[:];var localScrollUntil:[String:TimeInterval]=[:]
@@ -34,13 +35,14 @@ final class NativeSceneController:UIViewController,UIScrollViewDelegate,UITextFi
   let nodes=page["nodes"] as? [[String:Any]] ?? [];let ids=Set(nodes.compactMap{$0["id"] as? String})
   for id in Array(views.keys) where !ids.contains(id){scrollWork.removeValue(forKey:id)?.cancel();localScrollUntil.removeValue(forKey:id);NSLayoutConstraint.deactivate(layoutConstraints.removeValue(forKey:id) ?? []);NSLayoutConstraint.deactivate(contentConstraints.removeValue(forKey:id) ?? []);views.removeValue(forKey:id)?.removeFromSuperview();kinds.removeValue(forKey:id);specs.removeValue(forKey:id)}
   for n in nodes {
-   guard let id=n["id"] as? String,let kind=n["type"] as? String else{continue}
+   guard let id=n["id"] as? String,let declaredKind=n["type"] as? String else{continue};let kind=n["modelAsset"] is String ? "model3d" : declaredKind
    if let previous=specs[id],NSDictionary(dictionary:previous).isEqual(to:n),let cached=views[id]{cached.superview?.bringSubviewToFront(cached);continue}
    var v=views[id]
    if kinds[id] != kind {
     NSLayoutConstraint.deactivate(layoutConstraints.removeValue(forKey:id) ?? []);NSLayoutConstraint.deactivate(contentConstraints.removeValue(forKey:id) ?? []);v?.removeFromSuperview()
     switch kind {
     case "text":let label=UILabel();label.numberOfLines=0;v=label
+    case "model3d":v=NativeModelView()
     case "image":v=UIImageView()
     case "path","model":v=NativeDrawingView()
     case "nativeButton","nativeCheckbox":let b=UIButton(type:.system);b.addTarget(self,action:#selector(controlChanged(_:)),for:.touchUpInside);v=b
@@ -57,11 +59,11 @@ final class NativeSceneController:UIViewController,UIScrollViewDelegate,UITextFi
     default:v=UIView()
     }
     guard let fresh=v else{continue};fresh.accessibilityIdentifier=id;if enteringAnimation{fresh.alpha=0}
-    if !(fresh is UIControl) && !(fresh is UITextView) && !((page["events"] as? [String:[String:Any]])?[id]?["action"] as? String ?? "").isEmpty{fresh.addGestureRecognizer(UITapGestureRecognizer(target:self,action:#selector(tapped(_:))))}
+    if !(fresh is NativeModelView) && !(fresh is UIControl) && !(fresh is UITextView) && !((page["events"] as? [String:[String:Any]])?[id]?["action"] as? String ?? "").isEmpty{fresh.addGestureRecognizer(UITapGestureRecognizer(target:self,action:#selector(tapped(_:))))}
     views[id]=fresh;kinds[id]=kind
    }
    guard let item=v else{continue};specs[id]=n
-   if !(item is UIControl) && !(item is UITextView) && !(n["action"] as? String ?? "").isEmpty && (item.gestureRecognizers ?? []).isEmpty{item.addGestureRecognizer(UITapGestureRecognizer(target:self,action:#selector(tapped(_:))))}
+   if !(item is NativeModelView) && !(item is UIControl) && !(item is UITextView) && !(n["action"] as? String ?? "").isEmpty && (item.gestureRecognizers ?? []).isEmpty{item.addGestureRecognizer(UITapGestureRecognizer(target:self,action:#selector(tapped(_:))))}
    if let container=item as? PassThroughContainer{container.acceptsBackgroundTap = !((page["events"] as? [String:[String:Any]])?[id]?["action"] as? String ?? "").isEmpty || UIColor(studioHex:n["fill"] as? String ?? "#00000000").cgColor.alpha>0}
    let parent=views[n["parent"] as? String ?? ""] ?? view!
    if item.superview !== parent{NSLayoutConstraint.deactivate(layoutConstraints.removeValue(forKey:id) ?? []);parent.addSubview(item)}
@@ -76,6 +78,7 @@ final class NativeSceneController:UIViewController,UIScrollViewDelegate,UITextFi
    if let g=n["gradient"] as? [String:Any],let colors=g["colors"] as? [String]{let layer=(item.layer.sublayers?.first{$0.name=="studio.gradient"} as? CAGradientLayer) ?? CAGradientLayer();layer.name="studio.gradient";layer.colors=colors.map{UIColor(studioHex:$0).cgColor};layer.locations=(g["locations"] as? [Double])?.map{NSNumber(value:$0)};let start=g["start"] as? [CGFloat] ?? [0,0],end=g["end"] as? [CGFloat] ?? [0,1];layer.startPoint=CGPoint(x:start[0],y:start[1]);layer.endPoint=CGPoint(x:end[0],y:end[1]);layer.cornerRadius=item.layer.cornerRadius;if layer.superlayer==nil{item.layer.insertSublayer(layer,at:0)}}else{item.layer.sublayers?.first{$0.name=="studio.gradient"}?.removeFromSuperlayer()}
    if let sh=n["shadow"] as? [String:Any]{item.layer.shadowColor=UIColor(studioHex:sh["color"] as? String ?? "#00000033").cgColor;item.layer.shadowOpacity=1;item.layer.shadowOffset=CGSize(width:number(sh,"x"),height:number(sh,"y"));item.layer.shadowRadius=number(sh,"blur")/2}else{item.layer.shadowOpacity=0}
    let color=UIColor(studioHex:n["color"] as? String ?? "#17212B");item.tintColor=color
+   if let model=item as? NativeModelView{model.loadAsset=modelLoader;model.store=paintStore;model.onSave={[weak self] value in self?.onEvent?(["node":id,"value":value])};model.update(n,project:modelProject,editing:editingModels)}
    if let drawing=item as? NativeDrawingView {drawing.specification=n;drawing.isOpaque=false;drawing.backgroundColor = .clear}
    let fontScale=StudioWidthScale.factor(view.bounds.width>0 ? view.bounds.width:number(scene,"width",393),designWidth:number(scene,"width",393));var scaledNode=node;scaledNode.fontSize *= fontScale;let font=fonts.font(scaledNode),text=n["text"] as? String ?? ""
    if let label=item as? UILabel {

@@ -18,7 +18,7 @@ OPS.update({'mul','div','round','number','min','max','abs','sqrt','atan2','forma
 ACTION_FIELDS.update({'generateID':{'path'},'forget':{'key'},'share':{'filename','content','mime'}})
 TAGS.update({'ui-path':'path','ui-model':'model'})
 ATTRS.update({'points','profile','angle','elevation','closed'})
-ATTRS.add('placement')
+ATTRS.update({'placement','model-asset','paint-options'})
 OPS.add('revolveOBJ')
 def fail(file,message,line=1):raise ValueError(f'{file}:{line}: {message}')
 def load(path):
@@ -41,7 +41,11 @@ def asset_metadata(path,kind,stamp):
   for block in iter(lambda:stream.read(1024*1024),b''):digest.update(block)
  digest=digest.hexdigest();name=digest[:16]+f.suffix.lower()
  result=dict(id=name,kind=kind,file=name,sha256=digest)
- if kind=='font':
+ if kind=='model':
+  import struct
+  header=f.read_bytes()[:12]
+  if len(header)!=12 or struct.unpack('<III',header)!=(0x46546c67,2,f.stat().st_size):fail(f,'Invalid GLB header')
+ elif kind=='font':
   result['postscript']=postscript_name(f)
   if not result['postscript']:fail(f,'字体不可读')
  else:
@@ -114,9 +118,9 @@ class Parser(HTMLParser):
   if tag=='ui-stack':st['display']='stack'
   if tag=='ui-grid':st['display']='grid'
   n=dict(id=id,type=TAGS[tag],style=st,children=[],text='',source={'file':self.path,'line':line})
-  for k in ['name','asset','font','action','bind','key','group','component','placeholder','text-key','placeholder-key','symbol','semantic','placement']: 
+  for k in ['name','asset','font','action','bind','key','group','component','placeholder','text-key','placeholder-key','symbol','semantic','placement','model-asset']: 
    if k in a:n[k]=a[k]
-  for k in ['when','repeat','disabled','spans','options','styles','gradient','shadow','content','option-keys','text-args','selected','points','profile','angle','elevation','closed']:
+  for k in ['when','repeat','disabled','spans','options','styles','gradient','shadow','content','option-keys','text-args','selected','points','profile','angle','elevation','closed','paint-options']:
    if k in a:
     try:n[k]=json.loads(a[k])
     except Exception:fail(self.path,k+' 必须为 JSON 表达式',line)
@@ -160,7 +164,7 @@ def compile_project(root):
   if set(a)-{'id','path','kind'} or not all(k in a for k in ['id','path','kind']):fail('assets/catalog.json','资源只接受 id/path/kind')
   if a['id'] in seen:fail('assets/catalog.json','重复资源 ID '+a['id'])
   seen.add(a['id']);f=safe(root,a['path']);declared.add(f);kind=a['kind']
-  if kind not in ('image','font') or f.suffix.lower() not in (('.png','.jpg','.jpeg','.webp') if kind=='image' else ('.ttf','.otf')):fail(f,'不支持的资源类型')
+  if kind not in ('image','font','model') or f.suffix.lower() not in (('.png','.jpg','.jpeg','.webp') if kind=='image' else ('.glb',) if kind=='model' else ('.ttf','.otf')):fail(f,'不支持的资源类型')
   st=f.stat();stamp=(st.st_dev,st.st_ino,st.st_size,st.st_mtime_ns,st.st_ctime_ns)
   jobs.append((a,f,kind,stamp))
  def inspect(job):
@@ -225,7 +229,7 @@ def compile_project(root):
    for value in x:expression(value)
  def verify_node(n):
   ios_rules.verify_node(n,localization,ios,n['source']['file']+':'+str(n['source']['line']))
-  for k in ('asset','font'):
+  for k in ('asset','font','model-asset'):
    if k in n and '{{' not in n[k] and n[k] not in seen:fail(n['source']['file'],'未知资源 '+n[k],n['source']['line'])
   if 'styles' in n:
    if not isinstance(n['styles'],dict) or set(n['styles'])-NUM-COLORS-set(ENUM):fail(n['source']['file'],'styles 包含未支持样式')
@@ -261,16 +265,16 @@ def compile_project(root):
    for part in binding.split('.'):
     if not isinstance(value,dict) or part not in value:fail(n['source']['file'],'Binding is missing from initial state: '+binding,n['source']['line'])
     value=value[part]
-   expected={'nativeCheckbox':bool,'nativeSwitch':bool,'nativeTextField':str,'nativeTextView':str,'nativeSlider':(int,float),'nativeStepper':(int,float),'nativeProgress':(int,float),'nativeSegment':int}
+   expected={'nativeCheckbox':bool,'nativeSwitch':bool,'nativeTextField':str,'nativeTextView':str,'nativeSlider':(int,float),'nativeStepper':(int,float),'nativeProgress':(int,float),'nativeSegment':int,'model':str}
    kind=expected.get(n['type'])
    if kind is None or (type(value) not in kind if isinstance(kind,tuple) else type(value) is not kind):fail(n['source']['file'],'Control binding has the wrong type: '+binding,n['source']['line'])
 
   if n.get('repeat') and not n.get('key'):fail(n['source']['file'],'repeat 必须有 key')
   if n['type']=='image' and not n.get('asset') and not n.get('symbol'):fail(n['source']['file'],'图片缺少 asset')
   if n['type']=='text' and not n.get('text') and 'content' not in n and 'text-key' not in n:fail(n['source']['file'],'文案为空')
-  for k in ['when','repeat','disabled','spans','options','styles','gradient','shadow','content','option-keys','text-args','selected','points','profile','angle','elevation','closed']:expression(n.get(k))
+  for k in ['when','repeat','disabled','spans','options','styles','gradient','shadow','content','option-keys','text-args','selected','points','profile','angle','elevation','closed','paint-options']:expression(n.get(k))
   if n['type']=='path' and 'points' not in n:fail(n['source']['file'],'ui-path requires normalized points')
-  if n['type']=='model' and 'profile' not in n:fail(n['source']['file'],'ui-model requires a radius/height profile')
+  if n['type']=='model' and 'profile' not in n and 'model-asset' not in n:fail(n['source']['file'],'ui-model requires a radius/height profile')
   for child in n['children']:verify_node(child)
  for p in app.get('pages',[]):
   if set(p)-{'id','name','role','html','css','dismissOnBackdrop','navigation','onEnter'}:fail('app.json','页面声明存在未知字段')

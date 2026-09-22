@@ -26,6 +26,7 @@ extension NativeRuntimeController:SFSafariViewControllerDelegate,UIAdaptivePrese
   if controller.parent !== self {controller.willMove(toParent:nil);controller.view.removeFromSuperview();controller.removeFromParent();addChild(controller);controller.view.translatesAutoresizingMaskIntoConstraints=false;view.addSubview(controller.view);NSLayoutConstraint.activate([controller.view.leadingAnchor.constraint(equalTo:view.leadingAnchor),controller.view.trailingAnchor.constraint(equalTo:view.trailingAnchor),controller.view.topAnchor.constraint(equalTo:view.topAnchor),controller.view.bottomAnchor.constraint(equalTo:view.bottomAnchor)]);controller.didMove(toParent:self)}
  }
  func applyRuntimePage(_ page:[String:Any]){
+  for target in [scene,modalScene]{target.modelProject=payload["projectID"] as? String ?? (payload["model"] as? [String:Any])?["id"] as? String ?? "app";target.editingModels=payload["editing"] as? Bool ?? false}
   let chrome=page["nativeChrome"] as? [String:Any]
   let stack=(chrome?["stack"] as? [[String:Any]] ?? []).compactMap{$0["page"] as? String}
   let routeParts=[(payload["model"] as? [String:Any])?["id"] as? String ?? "",page["id"] as? String ?? ""]+stack+(page["modalPages"] as? [String] ?? [])

@@ -13,13 +13,13 @@ subprocess.run(['xcrun','swiftc','-O',str(root/'native/Main.swift'),'-o',str(con
 subprocess.run(['xcrun','swiftc','-O',str(root/'native/Symbols.swift'),'-o',str(root/'native/symbols'),'-framework','AppKit'], env=env, check=True)
 subprocess.run(['xcrun','clang','-O2','-fobjc-arc',str(root/'native/ios_frames.m'),'-o',str(root/'native/ios-frames'),'-framework','Foundation','-framework','CoreImage','-framework','IOSurface','-framework','ImageIO','-framework','CoreGraphics'], env=env, check=True)
 subprocess.run(['xcrun','clang','-fobjc-arc',str(root/'native/windows.m'),'-framework','AppKit','-o',str(root/'native/windows')],env=env,check=True)
-plist = {'CFBundleExecutable':'HTMLCodexWorkbench','CFBundleIdentifier':'local.htmlnative.codex-workbench','CFBundleName':'HTML Native Studio','CFBundleDisplayName':'HTML Native Studio','CFBundleVersion':'1','CFBundleShortVersionString':'1.0.0','CFBundlePackageType':'APPL','LSMinimumSystemVersion':'14.0','NSHighResolutionCapable':True,'NSAppTransportSecurity':{'NSAllowsLocalNetworking':True,'NSAllowsArbitraryLoadsInWebContent':True}}
+plist = {'CFBundleExecutable':'HTMLCodexWorkbench','CFBundleIdentifier':'local.htmlnative.codex-workbench','CFBundleName':'HTML Native Studio','CFBundleDisplayName':'HTML Native Studio','CFBundleVersion':'38','CFBundleShortVersionString':'1.0.38','CFBundlePackageType':'APPL','LSMinimumSystemVersion':'14.0','NSHighResolutionCapable':True,'NSAppTransportSecurity':{'NSAllowsLocalNetworking':True,'NSAllowsArbitraryLoadsInWebContent':True}}
 plist['CFBundleIconFile']='StudioIcon.icns'
 shutil.copy2(root/'native/StudioIcon.icns',contents/'Resources/StudioIcon.icns')
 (contents/'Info.plist').write_bytes(plistlib.dumps(plist))
 runtime=contents/'Resources/Client'
 runtime.mkdir(parents=True,exist_ok=True)
-for filename in ('submit-turn.mjs','server.mjs','rpc.mjs','usage.mjs','speed.mjs','sidebar-sync.mjs','capabilities.mjs','conversation-media.mjs','preview-scaffold.mjs','project-removal.mjs','project-paths.mjs','runtime-paths.mjs','package.json'):
+for filename in ('submit-turn.mjs','server.mjs','rpc.mjs','usage.mjs','speed.mjs','sidebar-sync.mjs','capabilities.mjs','conversation-media.mjs','preview-scaffold.mjs','preview-catalog.mjs','project-removal.mjs','project-paths.mjs','runtime-paths.mjs','package.json'):
     shutil.copy2(root/filename,runtime/filename)
 for folder in ('web','node_modules'):
     shutil.copytree(root/folder,runtime/folder,dirs_exist_ok=True)

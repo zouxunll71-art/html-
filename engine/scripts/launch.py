@@ -81,6 +81,10 @@ if device['state']!='Booted':run(['xcrun','simctl','boot',config['ios']])
 run(['xcrun','simctl','bootstatus',config['ios'],'-b'],timeout=240)
 run(['xcrun','simctl','status_bar',config['ios'],'override','--time','9:41','--batteryState','charged','--batteryLevel','100'])
 run(['xcrun','simctl','terminate',config['ios'],'local.htmlnative.HTMLNativeRuntime'],False)
+device_map=ROOT/'Workspace/project-devices.json'
+if device_map.exists():
+ owner=next((pid for pid,device in json.loads(device_map.read_text()).items() if device==config['ios']),None)
+ if owner:env['SIMCTL_CHILD_STUDIO_PROJECT_ID']=owner
 run(['xcrun','simctl','install',config['ios'],runtime]);run(['xcrun','simctl','launch',config['ios'],'local.htmlnative.HTMLNativeRuntime'])
 # Codex companion: window visibility does not stop the service or simulator.
 control=Path.home()/'Library/Application Support/HTMLNativeStudio-CodexControl'

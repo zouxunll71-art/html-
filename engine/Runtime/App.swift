@@ -11,9 +11,10 @@ final class NativeRuntimeController:UIViewController {
  var renderedRouteKey=""
  var routeSnapshot:UIView?;var routeAnimator:UIViewPropertyAnimator?
  let navigationHost=NativeNavigationHost(),modalScene=NativeSceneController();var lastChromeInsets=CGPoint(x:-1,y:-1);var lastChromeHeight:CGFloat = -1;var handledEffects=Set<String>();var lastChromeTargets=""
+ var paintingRecords:[String:[String:Any]]=[:]
  var assetsNeedReload=false;private var lastRuntimeChange=Date.distantPast;private var pollStarted=Date.distantPast
  let scene=NativeSceneController();let engine=JSContext()!;var payload:[String:Any]=[:];var revision = -1;var busy=false;var timer:Timer?;var images:[String:UIImage]=[:];var fonts=Set<String>();var standalone=false;var assetGeneration=0;var imagePixels:[String:Int]=[:];var eventQueue=[[String:Any]]();var sending=false;var errorLabel=UILabel()
- override func viewDidLoad(){super.viewDidLoad();view.backgroundColor = .white;setupNativeBehavior();pinChild(scene);scene.assetProvider={[weak self]id in self?.images[id]};scene.onEvent={[weak self]e in self?.event(e)}
+ override func viewDidLoad(){super.viewDidLoad();view.backgroundColor = .white;setupNativeBehavior();setupModels();pinChild(scene);scene.assetProvider={[weak self]id in self?.images[id]};scene.onEvent={[weak self]e in self?.event(e)}
   engine.exceptionHandler={_,e in print("Engine: \(e?.toString() ?? "unknown")")}
   if let path=Bundle.main.path(forResource:"engine",ofType:"js"),let js=try? String(contentsOfFile:path){engine.evaluateScript(js)}
   if let path=Bundle.main.url(forResource:"contract",withExtension:"json"),let data=try? Data(contentsOf:path),let contract=try? JSONSerialization.jsonObject(with:data) as? [String:Any]{standalone=true;loadStandalone(contract)}else{poll()}
@@ -62,6 +63,7 @@ final class NativeRuntimeController:UIViewController {
    guard p["projectID"] as? String==self.payload["projectID"] as? String,p["modelHash"] as? String==(self.payload["model"] as? [String:Any])?["hash"] as? String else{self.payload=[:];self.revision = -1;self.finishPoll(changed:false);return}
    p["model"]=self.payload["model"];p["assets"]=self.payload["assets"]
   }
+  self.scene.editingModels=p["editing"] as? Bool ?? false;self.modalScene.editingModels=self.scene.editingModels
   if !self.assetsNeedReload,self.payload["projectID"] as? String==p["projectID"] as? String,(self.payload["model"] as? [String:Any])?["hash"] as? String==(p["model"] as? [String:Any])?["hash"] as? String,self.applyScrollOnly(page){
    self.payload=p;self.revision=next;self.finishPoll(changed:true);Bridge.shared.json("/ack",["side":"ios","revision":next]){_ in};return
   }

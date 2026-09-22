@@ -66,7 +66,7 @@ def verify_node(node,localization,ios,where):
 
 def verify_navigation(nav,pages,localization,actions):
  if nav is None:return
- require(isinstance(nav,dict) and not set(nav)-{'tabs','tint','background'},'unsupported navigation configuration')
+ require(isinstance(nav,dict) and not set(nav)-{'tabs','tint','background','topBarTransparent'},'unsupported navigation configuration')
  for color in ('tint','background'):
   if color in nav:require(isinstance(nav[color],str) and re.fullmatch(r'#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?',nav[color]),'invalid navigation '+color)
  tabs=nav.get('tabs',[]);require(isinstance(tabs,list) and len(tabs)<=5,'native tabs require 0-5 items')

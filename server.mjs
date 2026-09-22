@@ -15,6 +15,7 @@ import { Capabilities } from './capabilities.mjs';
 import { ConversationMedia } from './conversation-media.mjs';
 import { ensurePreviewSource } from './preview-scaffold.mjs';
 import { removeProject } from './project-removal.mjs';
+import {previewCatalog} from './preview-catalog.mjs';
 import {directoryInput,workingDirectory,pathKey} from './project-paths.mjs';
 import {resolveRuntime} from './runtime-paths.mjs';
 const runtimePaths=resolveRuntime();
@@ -57,7 +58,8 @@ async function registerStudioProject(p,notifyDesktop=false){
   if(existing)return existing.id;
   const result=await rpc.call('project/import',{name:p.name,roots:[{path:p.sourcePath}],idempotencyKey:'html-studio:'+p.id});sidebarSync.invalidate();return result.project.id;
 }
-async function sidebar(force=false){const [native,catalog]=await Promise.all([studio('/projects?summary=1'),sidebarSync.read(force)]);sidebarSnapshot=mergedSidebar(native,registry.conversations,catalog,registry.previewBindings,registry.hiddenNativeProjects);return sidebarSnapshot;}
+const readPreviewCatalog=previewCatalog(()=>studio('/projects?summary=1'));
+async function sidebar(force=false){const [native,catalog]=await Promise.all([readPreviewCatalog(),sidebarSync.read(force)]);sidebarSnapshot=mergedSidebar(native,registry.conversations,catalog,registry.previewBindings,registry.hiddenNativeProjects);return sidebarSnapshot;}
 let sequence = 0, startupError = '', bootingStudio = null, studioReady = false;
 const events = [];
 const symbolCache = new Map();
@@ -174,44 +176,39 @@ let frame = null, frameTime = 0, frameReaderStarted = false, frameProcess = null
 const frameClients = new Set();
 function framePacket(image) { const header=Buffer.alloc(4);header.writeUInt32BE(image.length);return Buffer.concat([header,image]); }
 async function frames() {
-  if (frameReaderStarted) return; frameReaderStarted = true;
-  for (;;) {
-    try {
-      const c=config();
-      const child=spawn(path.join(HERE,'native/ios-frames'),[c.ios],{env:{...process.env,DEVELOPER_DIR:c.developerDir},stdio:['ignore','pipe','ignore']});
-      frameProcess=child;
-      let buffer=Buffer.alloc(0);
-      await new Promise(resolve=>{
-        child.on('error',resolve);child.on('exit',resolve);
-        child.stdout.on('data',chunk=>{
-          buffer=Buffer.concat([buffer,chunk]);
-          while(buffer.length>=4){
-            const size=buffer.readUInt32BE(0);
-            if(!size || size>20000000){child.kill();break;}
-            if(buffer.length<size+4)break;
-            frame=Buffer.from(buffer.subarray(4,size+4));frameTime=Date.now();buffer=buffer.subarray(size+4);
-            const packet=framePacket(frame);
-            for(const client of frameClients){if(client.writableLength===0)client.write(packet);}
-          }
-        });
-      });
-    } catch {}
-    frameProcess=null;
-    await new Promise(r=>setTimeout(r,1500));
-  }
+ if(frameReaderStarted)return;frameReaderStarted=true;
+ for(;;){
+  try{
+   const controller=new AbortController();frameProcess={kill:()=>controller.abort()};
+   const upstream=await fetch(`http://127.0.0.1:${config().port}/ios-stream`,{headers:{'X-Studio-Token':token()},signal:controller.signal});
+   if(!upstream.ok)throw Error('模拟器画面暂不可用');
+   let buffer=Buffer.alloc(0);
+   for await(const chunk of upstream.body){
+    buffer=Buffer.concat([buffer,chunk]);
+    while(buffer.length>=4){
+     const size=buffer.readUInt32BE(0);if(!size||size>20000000)throw Error('Invalid frame');
+     if(buffer.length<size+4)break;
+     frame=Buffer.from(buffer.subarray(4,size+4));frameTime=Date.now();buffer=buffer.subarray(size+4);
+     const packet=framePacket(frame);for(const client of frameClients)if(client.writableLength===0)client.write(packet);
+    }
+   }
+  }catch{}
+  frame=null;frameTime=0;frameProcess=null;
+  await new Promise(r=>setTimeout(r,500));
+ }
 }
 async function windowAction(action) {
   const c = config(), studioApp = path.join(ROOT, 'build/studio/Build/Products/Debug-maccatalyst/HTMLNativeStudio.app'), sim = path.join(c.developerDir, 'Applications/Simulator.app');
   if (action === 'hide') await exec(path.join(HERE, 'native/windows'), ['hide', studioApp, sim]);
   else if (action === 'show-studio') await exec('/usr/bin/open', ['/Applications/HTML Native Studio.app']);
-  else if (action === 'show-simulator') await exec('/usr/bin/open', ['-a', sim, '--args', '-CurrentDeviceUDID', c.ios]);
+  else if (action === 'show-simulator') await studio('/ios-window',{});
   else throw new Error('未知窗口操作');
 }
 let mirrorFrame=null,mirrorUpdated=0,mirrorViewed=0,mirrorCommands=[];
 async function handle(req, res) {
   if (req.headers.host !== `127.0.0.1:${PORT}` || (req.headers.origin && req.headers.origin !== ORIGIN) || req.headers['sec-fetch-site'] === 'cross-site') return json(res, { error: '请求来源不匹配' }, 403);
   const url = new URL(req.url, ORIGIN);
-  if (req.method === 'GET' && url.pathname === '/health') return json(res, { app: 'html-native-codex-client', version: '1.0.0', ready: rpc.ready && studioReady });
+  if (req.method === 'GET' && url.pathname === '/health') return json(res, { app: 'html-native-codex-client', version: '1.0.38', ready: rpc.ready && studioReady });
   if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/mirror')) {
     res.setHeader('Set-Cookie', `studio_client=${CSRF}; HttpOnly; SameSite=Strict; Path=/`);
     res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'");
@@ -263,8 +260,8 @@ async function handle(req, res) {
   }
   if (req.method === 'GET' && url.pathname === '/api/state') {
     if(url.searchParams.has('sidebar')){const synced=await sidebar(url.searchParams.has('refresh'));return json(res,{projects:synced.projects,registry:{conversations:synced.conversations},running:Object.fromEntries(running)});}
-    await ensureStudio();
-    const [synced, status] = await Promise.all([sidebar(url.searchParams.has('refresh')), studio('/status')]);
+    void ensureStudio().catch(error=>{startupError=error.message});
+    const [synced, status] = await Promise.all([sidebar(url.searchParams.has('refresh')), studio('/status').catch(error=>({active:null,error:'预览服务暂不可用：'+error.message,conflicts:[],editing:true,linked:true}))]);
     return json(res, { projects:synced.projects, sections:synced.sections, syncedAt:synced.updatedAt, status, registry:{...registry,conversations:synced.conversations}, running: Object.fromEntries(running), pendingRequests: [...requests.values()], codexReady: rpc.ready, startupError, sequence });
   }
   if (req.method === 'GET' && url.pathname === '/api/codex') {

@@ -10,6 +10,7 @@ from compiler import compile_project
 import authoring
 import source_resources
 import conversion_audit
+import model_paint_storage
 import asset_thumbnails
 import asset_compression
 import ios_rules
@@ -18,7 +19,10 @@ import ios_runner
 import export_jobs
 from ios_input import SimulatorInput
 from ios_frames import SimulatorFrames
+from project_devices import ProjectDevices
 ROOT=Path(__file__).resolve().parents[1];STORE=ROOT/'Workspace';CONFIG=json.loads((ROOT/'bridge/config.json').read_text());TOKEN=(ROOT/'bridge/token').read_text().strip()
+DEVICES=ProjectDevices(ROOT,CONFIG)
+STARTED_DEVICES=set()
 IOS_INPUT=SimulatorInput(ROOT,CONFIG)
 IOS_FRAMES=SimulatorFrames(ROOT,CONFIG)
 sys.path.insert(0,str(ROOT/'scripts'))
@@ -61,6 +65,16 @@ def project(r):
   temp={**r,'sessions':{'ios':session}};out=eng('editor',frame=frame(temp));out['paintOrderVersion']=1;pages.append(out)
  current=eng('editor',frame=frame(r));pages=[current if p['id']==current['id'] else p for p in pages]
  return dict(schemaVersion=1,id=r['id'],name=r['model']['name'],sourcePath=r['source'],package='',assets=r['model']['assets'],pages=pages,pageCandidates=[],updated=r['updated'],importMode='html',selectionColor=r.get('selectionColor','#147DF5'),compileRevision=r['model']['hash'])
+def mode_for(r):
+ return (LINKED,EDITING) if r['id']==ACTIVE else (r.get('runtimeMode',{}).get('linked',True),r.get('runtimeMode',{}).get('editing',False))
+def select_device(pid):
+ r=read(pid);config=DEVICES.ensure(pid,r['model']['name'])
+ if IOS_FRAMES.config['ios']!=config['ios']:
+  IOS_INPUT.close();IOS_FRAMES.close()
+ IOS_INPUT.config=config;IOS_FRAMES.config=config
+ if pid not in STARTED_DEVICES:
+  STARTED_DEVICES.add(pid);ios_runner.start(pid,config,finish_ios_run)
+ return config
 def store(r):atomic(STORE/r['id']/'record.json',r,compact=True)
 def publish_assets(r):
  d=STORE/r['id']/'assets';d.mkdir(parents=True,exist_ok=True)
@@ -172,12 +186,12 @@ def update_edits(persist,body):
    normalized.append(n)
   r['additions'][edit['id']]=normalized
  r['selectionColor']=body.get('selectionColor',r.get('selectionColor','#147DF5'));r['updated']=time.time();store(r);bump();return project(r) if persist else {'ok':True,'revision':REV}
-def event(body):
- r=read(ACTIVE);side=body.get('side','web');eid=body.get('eventID');tag=(side,eid)
+def event(body,project_id=None):
+ pid=project_id or ACTIVE;r=read(pid);linked,editing=mode_for(r);side=body.get('side','web');eid=body.get('eventID');tag=(pid,side,eid)
  if eid and tag in PROCESSED:return {'revision':REV}
  if side not in ('web','ios'):raise ValueError('Unknown side')
  s=r['sessions'][side];e=body['event']
- if body.get('projectID',ACTIVE)!=ACTIVE:raise ValueError('项目已切换，操作已停止')
+ if body.get('projectID',pid)!=pid:raise ValueError('项目已切换，操作已停止')
  if body.get('pageID') and body['pageID']!=frame(r,side)['id']:raise ValueError('页面已切换，操作已停止')
  if e.get('type') not in ('navigate','back','scroll','locale','chromeInsets','tab','popTo','effectComplete'):
   f=frame(r,side);decl=f['events'].get(e.get('node'))
@@ -189,10 +203,10 @@ def event(body):
     store(r);bump();return {'revision':REV}
   if decl is None or decl.get('disabled'):raise ValueError('图层不可交互或已失效')
   e={**decl,'value':e.get('value')}
- if e.get('preview') and not EDITING:raise ValueError('请先切换到选取与编辑模式')
+ if e.get('preview') and not editing:raise ValueError('请先切换到选取与编辑模式')
  s=eng('event',model=r['model'],session=s,event=e)
- r['sessions'][side]=s
- if LINKED:r['sessions']['web' if side=='ios' else 'ios']=copy.deepcopy(s)
+ r['sessions'][side]=s;r['modelCommandSide']=side
+ if linked:r['sessions']['web' if side=='ios' else 'ios']=copy.deepcopy(s)
  r['updated']=time.time();store(r);bump();schedule_effects(r,side)
  if eid:PROCESSED[tag]=REV
  if len(PROCESSED)>1000:PROCESSED.clear()
@@ -205,17 +219,21 @@ def schedule_effects(record,side):
   def complete(key=key):
    try:
     with LOCK:
-     if ACTIVE==key[0]:event({'side':key[1],'projectID':key[0],'event':{'type':'effectComplete','id':key[2]}})
+     event({'side':key[1],'projectID':key[0],'event':{'type':'effectComplete','id':key[2]}},key[0])
    except Exception as error:
     global ERROR
-    with LOCK:ERROR='延时动作执行失败：'+str(error)
+    with LOCK:
+     if ACTIVE==key[0]:ERROR='延时动作执行失败：'+str(error)
    finally:PENDING_TIMERS.pop(key,None)
   timer=threading.Timer(effect['duration'],complete);timer.daemon=True;PENDING_TIMERS[key]=timer;timer.start()
-def runtime(side,known_project='',known_model=''):
- if not ACTIVE:return dict(revision=REV,model=None)
- r=read(ACTIVE);schedule_effects(r,side);page=frame(r,side);seen=set(r.get('effectAcks',{}).get(side,[]));page['chromeHitTargets']=CHROME_TARGETS.get((ACTIVE,page['id']),[]) if side=='ios' else [];page['browserOpen']=BROWSER_OPEN.get(ACTIVE,False) if side=='ios' else False;page['closeBrowser']=ACTIVE in CLOSE_BROWSER if side=='ios' else False;page['effects']=[e for e in page.get('effects',[]) if e['id'] not in seen]
- result=dict(revision=REV,projectID=ACTIVE,session=r['sessions'][side],page=page,sourceSignature=source_resources.signature(page) if side=='web' else '',editing=EDITING,linked=LINKED,modelHash=r['model']['hash'])
- if known_project==ACTIVE and known_model==r['model']['hash']:result['reuseModel']=True
+def runtime(side,known_project='',known_model='',project_id=None):
+ pid=project_id or ACTIVE
+ if not pid:return dict(revision=REV,model=None)
+ r=read(pid);linked,editing=mode_for(r);schedule_effects(r,side);page=frame(r,side);seen=set(r.get('effectAcks',{}).get(side,[]));page['chromeHitTargets']=CHROME_TARGETS.get((pid,page['id']),[]) if side=='ios' else [];page['browserOpen']=BROWSER_OPEN.get(pid,False) if side=='ios' else False;page['closeBrowser']=pid in CLOSE_BROWSER if side=='ios' else False;page['effects']=[e for e in page.get('effects',[]) if e['id'] not in seen]
+ for node in page.get('nodes',[]):
+  if node.get('modelAsset'):node['paintCommandOwner']=r.get('modelCommandSide',side)
+ result=dict(revision=REV,projectID=pid,session=r['sessions'][side],page=page,sourceSignature=source_resources.signature(page) if side=='web' else '',editing=editing,linked=linked,modelHash=r['model']['hash'])
+ if known_project==pid and known_model==r['model']['hash']:result['reuseModel']=True
  else:result.update(model=r['model'],assets=r['model']['assets'])
  return result
 def export(r,progress=lambda stage,percent:None):
@@ -259,26 +277,30 @@ def export(r,progress=lambda stage,percent:None):
  return destination
 def finish_ios_run(pid):
  with LOCK:
-  if ACTIVE!=pid:return {'projectChanged':True}
-  r=read(pid)
-  if LINKED:r['sessions']['ios']=copy.deepcopy(r['sessions']['web']);store(r)
-  ACK.clear();bump();return {'revision':REV,'linked':LINKED}
+  read(pid)
+  if ACTIVE==pid:ACK.clear()
+  bump();return {'revision':REV,'projectID':pid,'projectChanged':ACTIVE!=pid}
 
 def watch():
+ global ERROR
  while True:
   time.sleep(.25)
-  try:
-   with LOCK:pid=ACTIVE;r=read(pid) if pid else None
-   if not r:continue
-   sig=signature(Path(r['source']))
-   if sig==lastWatch.get(pid):continue
-   lastWatch[pid]=sig;time.sleep(.15);started=time.monotonic();model=compile_project(r['source'])
-   with LOCK:
-    if ACTIVE==pid:recompile(read(pid),model)
-   (ROOT/'artifacts/last-compile-ms.txt').write_text(str(round((time.monotonic()-started)*1000,1)))
-  except Exception as e:
-   global ERROR
-   with LOCK:ERROR=str(e)
+  with LOCK:targets=list(dict.fromkeys(([ACTIVE] if ACTIVE else [])+DEVICES.projects()))
+  for pid in targets:
+   try:
+    with LOCK:r=read(pid)
+    sig=signature(Path(r['source']))
+    if sig==lastWatch.get(pid):continue
+    lastWatch[pid]=sig;time.sleep(.15);started=time.monotonic();model=compile_project(r['source'])
+    with LOCK:
+     previous_error=ERROR
+     try:recompile(read(pid),model)
+     finally:
+      if ACTIVE!=pid:ERROR=previous_error
+    (ROOT/'artifacts/last-compile-ms.txt').write_text(str(round((time.monotonic()-started)*1000,1)))
+   except Exception as e:
+    with LOCK:
+     if ACTIVE==pid:ERROR=str(e)
 class Handler(BaseHTTPRequestHandler):
  def log_message(self,*a):pass
  def respond(self,value,code=200,mime='application/json',cache='no-store'):
@@ -288,9 +310,15 @@ class Handler(BaseHTTPRequestHandler):
  def handle_request(self):
   global ACTIVE,ERROR,LINKED,EDITING
   u=urlparse(self.path);q=parse_qs(u.query);path=u.path
+  if path in ('/model-paint.js','/model-vendor/three.module.js','/model-vendor/three.core.js','/model-vendor/GLTFLoader.js','/model-vendor/BufferGeometryUtils.js'):
+   return self.respond((ROOT/'Web'/path.lstrip('/')).read_bytes(),mime='text/javascript')
   if self.headers.get('X-Studio-Token')!=TOKEN and q.get('token',[''])[0]!=TOKEN:return self.respond({'error':'Unauthorized'},403)
   try:
    body=json.loads(self.rfile.read(int(self.headers.get('Content-Length',0))) or b'{}')
+   bound=self.headers.get('X-Studio-Project')
+   if bound:read(bound)
+   target=bound or ACTIVE
+   if bound and body.get('projectID',bound)!=bound:raise ValueError('运行端项目不匹配')
    if path=='/ios-stream':
     stream=IOS_FRAMES.frames()
     self.connection.settimeout(3)
@@ -318,9 +346,13 @@ class Handler(BaseHTTPRequestHandler):
    if path=='/ios-window':
     if self.command!='POST':return self.respond({'error':'POST required'},405)
     simulator=Path(CONFIG['developerDir'])/'Applications/Simulator.app'
-    result=subprocess.run(['/usr/bin/open','-a',str(simulator),'--args','-CurrentDeviceUDID',CONFIG['ios']],capture_output=True,text=True,timeout=10)
+    result=subprocess.run(['/usr/bin/open','-a',str(simulator),'--args','-CurrentDeviceUDID',select_device(ACTIVE)['ios']],capture_output=True,text=True,timeout=10)
     if result.returncode:raise ValueError('无法打开独立模拟器：'+result.stderr[-500:])
     return self.respond({'ok':True})
+   if path=='/model-paint-data':
+    project_id=q.get('project',[''])[0]
+    read(project_id)
+    return self.respond(model_paint_storage.exchange(folder(project_id)/'paintings',self.command,q.get('key',[''])[0],body))
    if path=='/export-start':
     if self.command!='POST':return self.respond({'error':'POST required'},405)
     with LOCK:
@@ -340,7 +372,7 @@ class Handler(BaseHTTPRequestHandler):
     with LOCK:
      if ACTIVE!=pid:raise ValueError('项目已切换，请重新运行')
      recompile(read(pid),fresh)
-    return self.respond({'job':ios_runner.start(pid,CONFIG,finish_ios_run)})
+    return self.respond({'job':ios_runner.start(pid,DEVICES.ensure(pid,r['model']['name']),finish_ios_run)})
    if path=='/run-ios-status':return self.respond(ios_runner.status(q['job'][0]))
    if path=='/repair-sync':
     if self.command!='POST':return self.respond({'error':'POST required'},405)
@@ -349,8 +381,8 @@ class Handler(BaseHTTPRequestHandler):
      r=read(ACTIVE)
      if ERROR:raise ValueError('源码编译错误，请先修复：'+ERROR)
      if LINKED:r['sessions']['ios']=copy.deepcopy(r['sessions']['web']);store(r)
-     ACK.clear();bump();repair_revision=REV
-    result=subprocess.run(['xcrun','simctl','launch',CONFIG['ios'],'local.htmlnative.HTMLNativeRuntime'],env=dict(os.environ,DEVELOPER_DIR=CONFIG['developerDir']),capture_output=True,text=True,timeout=12)
+     ACK.clear();bump();repair_revision=REV;repair_project=ACTIVE
+    result=subprocess.run(['xcrun','simctl','launch',DEVICES.ensure(repair_project,r['model']['name'])['ios'],'local.htmlnative.HTMLNativeRuntime'],env=dict(os.environ,DEVELOPER_DIR=CONFIG['developerDir'],SIMCTL_CHILD_STUDIO_PROJECT_ID=repair_project),capture_output=True,text=True,timeout=12)
     if result.returncode:raise ValueError('无法启动 iOS 运行端：'+(result.stderr or result.stdout)[-1000:])
     return self.respond(dict(revision=repair_revision,linked=LINKED,ok=True))
    if path=='/compress-assets':
@@ -374,14 +406,16 @@ class Handler(BaseHTTPRequestHandler):
      records=[json.loads(p.read_text()) for p in sorted(STORE.glob('*/record.json'),key=lambda p:p.stat().st_mtime,reverse=True)]
      if q.get('summary',[''])[0]=='1':return self.respond([dict(id=r['id'],name=r['model']['name'],sourcePath=r['source'],updated=r['updated'],compileRevision=r['model']['hash'],pages=[dict(id=pid,name=p.get('name',pid)) for pid,p in r['model']['pages'].items()]) for r in records])
      return self.respond([project(r) for r in records])
-    if path=='/import':return self.respond(import_project(body['path']))
+    if path=='/import':
+     result=import_project(body['path']);select_device(ACTIVE);return self.respond(result)
     if path=='/new':
-     dest=authoring.new_project(body.get('name'));return self.respond(import_project(str(dest)))
+     dest=authoring.new_project(body.get('name'));result=import_project(str(dest));select_device(ACTIVE);return self.respond(result)
     if path=='/authoring-kit':
      pid=q.get('id',[None])[0];return self.respond(authoring.payload(read(pid)['source'] if pid else None))
     if path=='/install-authoring-kit':
      r=read(body['id']);authoring.install(r['source']);return self.respond(authoring.payload(r['source']))
-    if path=='/activate-project':IOS_INPUT.close();ACTIVE=body['id'];read(ACTIVE);bump();return self.respond({'ok':True})
+    if path=='/activate-project':
+     IOS_INPUT.close();ACTIVE=body['id'];r=read(ACTIVE);mode=r.get('runtimeMode',{});LINKED=mode.get('linked',True);EDITING=mode.get('editing',True);select_device(ACTIVE);bump();return self.respond({'ok':True})
     if path=='/restore-mode':
      if self.command!='POST':raise ValueError('POST required')
      LINKED=bool(body.get('linked',True));EDITING=bool(body.get('editing',True));bump();return self.respond({'ok':True})
@@ -398,7 +432,7 @@ class Handler(BaseHTTPRequestHandler):
     if path=='/project':return self.respond(project(read(q['id'][0])))
     if path=='/runtime':
      if int(q.get('after',['-1'])[0])==REV:return self.respond({'revision':REV})
-     return self.respond(runtime(q.get('side',['ios'])[0],q.get('project',[''])[0],q.get('model',[''])[0]))
+     return self.respond(runtime(q.get('side',['ios'])[0],q.get('project',[''])[0],q.get('model',[''])[0],bound))
     if path=='/source-layers':
      r=read(ACTIVE);f=frame(r,'web',base=True);return self.respond(dict(projectID=r['id'],signature=source_resources.signature(f),frame=eng('editor',frame=f),raw=f,assets=r['model']['assets']))
     if path=='/copy-source':
@@ -413,36 +447,43 @@ class Handler(BaseHTTPRequestHandler):
      r['additions'].setdefault(target,[]).extend(copied);r['updated']=time.time();store(r);bump()
      return self.respond(dict(project=project(r),copiedIDs=[n['id'] for n in copied]))
     if path=='/browser-state':
-     if self.command!='POST' or body.get('projectID')!=ACTIVE:raise ValueError('项目已变化')
+     if self.command!='POST' or body.get('projectID')!=target:raise ValueError('项目已变化')
      opened=bool(body.get('open'))
-     if BROWSER_OPEN.get(ACTIVE,False)!=opened:BROWSER_OPEN[ACTIVE]=opened;bump()
-     if not opened:CLOSE_BROWSER.discard(ACTIVE)
+     if BROWSER_OPEN.get(target,False)!=opened:BROWSER_OPEN[target]=opened;bump()
+     if not opened:CLOSE_BROWSER.discard(target)
      return self.respond({'ok':True})
     if path=='/close-native-browser':
-     if self.command!='POST' or body.get('id')!=ACTIVE:raise ValueError('项目已变化')
-     CLOSE_BROWSER.add(ACTIVE);bump();return self.respond({'ok':True})
+     if self.command!='POST' or body.get('id')!=target:raise ValueError('项目已变化')
+     CLOSE_BROWSER.add(target);bump();return self.respond({'ok':True})
     if path=='/chrome-layout':
      if self.command!='POST':raise ValueError('POST required')
-     if body.get('projectID')!=ACTIVE or body.get('pageID')!=read(ACTIVE)['sessions']['ios']['stack'][-1]['page']:raise ValueError('页面已切换')
+     if body.get('projectID')!=target or body.get('pageID')!=read(target)['sessions']['ios']['stack'][-1]['page']:raise ValueError('页面已切换')
      targets=body.get('targets',[])
      if not isinstance(targets,list) or len(targets)>30:raise ValueError('Invalid navigation targets')
-     key=(ACTIVE,body['pageID'])
+     key=(target,body['pageID'])
      if CHROME_TARGETS.get(key)!=targets:CHROME_TARGETS[key]=targets;bump()
      return self.respond({'ok':True})
     if path=='/ack-effects':
      if self.command!='POST':return self.respond({'error':'POST required'},405)
      side=body.get('side');pid=body.get('projectID')
-     if pid!=ACTIVE or side not in ('web','ios'):raise ValueError('项目或同步端已变化')
+     if pid!=target or side not in ('web','ios'):raise ValueError('项目或同步端已变化')
      r=read(pid);acks=r.setdefault('effectAcks',{});seen=set(acks.get(side,[]));seen.update(str(i) for i in body.get('ids',[]))
      acks[side]=list(seen)
      for channel,session in r['sessions'].items():
-      done=set(acks.get(channel,[])) if not LINKED else set(acks.get('web',[]))&set(acks.get('ios',[]))
+      done=set(acks.get(channel,[])) if not mode_for(r)[0] else set(acks.get('web',[]))&set(acks.get('ios',[]))
       session['effects']=[e for e in session.get('effects',[]) if e['id'] not in done]
      pending_ids={e['id'] for session in r['sessions'].values() for e in session.get('effects',[])}
      for channel in list(acks):acks[channel]=[eid for eid in acks[channel] if eid in pending_ids]
      store(r);return self.respond({'ok':True})
-    if path=='/event':return self.respond(event(body))
-    if path=='/ack':ACK[body.get('side','ios')]=body.get('revision');return self.respond({'ok':True})
+    if path=='/event':
+     e=body.get('event',{})
+     if e.get('type')=='modelPaintStorage':
+      project_id=body.get('projectID','');read(project_id)
+      return self.respond(model_paint_storage.exchange(folder(project_id)/'paintings',e.get('method','GET'),e.get('key',''),e.get('value'),e.get('knownRevision')))
+     return self.respond(event(body,bound))
+    if path=='/ack':
+     if target==ACTIVE:ACK[body.get('side','ios')]=body.get('revision')
+     return self.respond({'ok':True})
     if path=='/mode':
      if 'linked'in body:
       LINKED=bool(body['linked']);r=read(ACTIVE)
@@ -455,6 +496,8 @@ class Handler(BaseHTTPRequestHandler):
        for side in ('ios','web'):
         page=read(ACTIVE)['sessions'][side].get('editingPage')
         if page:event({'side':side,'projectID':ACTIVE,'event':{'type':'navigate','page':page}})
+     if ACTIVE:
+      r=read(ACTIVE);r['runtimeMode']={'linked':LINKED,'editing':EDITING};store(r)
      bump();return self.respond({'ok':True})
     if path=='/reset':
      r=read(ACTIVE);model=compile_project(r['source']);atomic(folder(ACTIVE)/'versions'/f'{time.time_ns()}.json',r);r['model']=model;r['sessions']=sessions(model);r['effectAcks']={};store(r);ERROR='';bump();return self.respond({'ok':True})
@@ -490,6 +533,10 @@ class Handler(BaseHTTPRequestHandler):
      r=read(body['id']);name=body['file']
      if Path(name).name!=name:raise ValueError('Invalid version')
      old=json.loads((folder(r['id'])/'versions'/name).read_text());atomic(folder(r['id'])/'versions'/f'{time.time_ns()}.json',r);r['overrides']=old['overrides'];r['additions']=old['additions'];r['conflicts']=[];store(r);recompile(r,compile_project(r['source']));bump();return self.respond(project(r))
+    if path=='/model-paint.js' or path.startswith('/model-vendor/'):
+     p=(ROOT/'Web'/path.lstrip('/')).resolve()
+     if not p.is_relative_to((ROOT/'Web').resolve()) or not p.is_file():raise ValueError('Invalid module path')
+     return self.respond(p.read_bytes(),mime='text/javascript')
     if path in ('/web','/engine.js','/native-ui.js','/preview.js'):
      p={'/web':ROOT/'Web/index.html','/engine.js':ROOT/'Shared/engine.js','/native-ui.js':ROOT/'Web/native-ui.js','/preview.js':ROOT/'Web/preview.js'}[path]
      return self.respond(p.read_bytes(),mime='text/html' if path=='/web' else 'text/javascript')
