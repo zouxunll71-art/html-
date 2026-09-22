@@ -11,7 +11,7 @@ final class DeviceSurface:UIView,UIDragInteractionDelegate,UIDropInteractionDele
  var isSource=false {didSet {chrome.isHidden=isSource;imageView.layer.mask=isSource ? nil : screenMask;backgroundColor=isSource ? .white : .clear;layer.cornerRadius=isSource ? 28 : 0;layer.borderWidth=isSource ? 5 : 0;layer.borderColor=UIColor.black.cgColor;clipsToBounds=isSource;updateInputMode();setNeedsLayout()}};var operate=false {didSet{updateInputMode()}}
  var onScroll:((String,CGPoint,CGPoint,CGPoint)->Void)?;private var operatePanHandled=false;private var operateOrigin:CGPoint?
  private var sourceTouch=false;private var pointerOrigin:CGPoint?
- private var tapGesture:UITapGestureRecognizer!;private var panGesture:UIPanGestureRecognizer!;private var wheelSequence=false;private var resourceDrag:UIDragInteraction!
+ private var tapGesture:UITapGestureRecognizer!;private var panGesture:UIPanGestureRecognizer!;private var scrollGesture:UIPanGestureRecognizer!;private var dragTarget:String?;private var resourceDrag:UIDragInteraction!
  var previewAsset:((String)->UIImage?)?
  var onPointer:((String,CGPoint)->Void)?
  var directSimulatorInput=false {didSet{updateInputMode()}}
@@ -28,7 +28,9 @@ final class DeviceSurface:UIView,UIDragInteractionDelegate,UIDropInteractionDele
   selection.layer.borderColor=UIColor.systemBlue.cgColor;selection.layer.borderWidth=2;selection.layer.shadowColor=UIColor.white.cgColor;selection.layer.shadowOpacity=0.9;selection.layer.shadowRadius=1;selection.layer.shadowOffset = .zero;selection.isUserInteractionEnabled=false;selectionClip.addSubview(selection)
   for v in [handle,rotateHandle]{v.backgroundColor = .white;v.layer.borderColor=UIColor.systemBlue.cgColor;v.layer.borderWidth=1.5;v.layer.cornerRadius=3;selectionClip.addSubview(v)}
   tapGesture=UITapGestureRecognizer(target:self,action:#selector(tap(_:)));addGestureRecognizer(tapGesture)
-  panGesture=UIPanGestureRecognizer(target:self,action:#selector(pan(_:)));panGesture.delegate=self;panGesture.allowedScrollTypesMask = .all;addGestureRecognizer(panGesture)
+  panGesture=UIPanGestureRecognizer(target:self,action:#selector(pan(_:)));panGesture.delegate=self;panGesture.allowedScrollTypesMask = [];addGestureRecognizer(panGesture)
+  tapGesture.require(toFail:panGesture)
+  scrollGesture=UIPanGestureRecognizer(target:self,action:#selector(wheel(_:)));scrollGesture.allowedTouchTypes=[];scrollGesture.allowedScrollTypesMask = .all;scrollGesture.cancelsTouchesInView=false;addGestureRecognizer(scrollGesture)
   simulatorWheel=UIPanGestureRecognizer(target:self,action:#selector(simulatorWheelChanged(_:)));simulatorWheel.allowedTouchTypes=[];simulatorWheel.allowedScrollTypesMask = .all;simulatorWheel.cancelsTouchesInView=false;simulatorWheel.isEnabled=false;addGestureRecognizer(simulatorWheel)
   resourceDrag=UIDragInteraction(delegate:self);resourceDrag.isEnabled=false;addInteraction(resourceDrag);addInteraction(UIDropInteraction(delegate:self))
   accessibilityLabel="模拟器实时画面"
@@ -36,6 +38,7 @@ final class DeviceSurface:UIView,UIDragInteractionDelegate,UIDropInteractionDele
  private func updateInputMode(){
   let direct=webHosted || simulatorDirect
   tapGesture?.isEnabled = !direct;panGesture?.isEnabled = !direct;resourceDrag?.isEnabled = isSource && !operate
+  scrollGesture?.isEnabled = !direct && !isSource
   simulatorWheel?.isEnabled = simulatorDirect
   if !direct && sourceTouch{sourceTouch=false;onPointer?("up",dragStart)}
  }
@@ -144,8 +147,8 @@ final class DeviceSurface:UIView,UIDragInteractionDelegate,UIDropInteractionDele
   onScroll?(phase,dragStart,CGPoint(x:t.x*scale,y:t.y*scale),.zero)
  }
  @objc func pan(_ g:UIPanGestureRecognizer){
-  if g.state == .began{wheelSequence = g.numberOfTouches == 0}
-  if wheelSequence && !isSource{wheel(g);return}
+  let finished=g.state == .ended || g.state == .cancelled || g.state == .failed
+  defer{if finished{dragTarget=nil;pointerOrigin=nil;resizingGroup=false}}
   let point=g.location(in:self);let p=logical(point)
   if operate && !isSource{
    let t=g.translation(in:self),v=g.velocity(in:self),scale=logicalSize.width/screenRect.width
@@ -156,10 +159,10 @@ final class DeviceSurface:UIView,UIDragInteractionDelegate,UIDropInteractionDele
   if !isSource && g.state == .began {
    let t=g.translation(in:self);let start=pointerOrigin ?? logical(CGPoint(x:point.x-t.x,y:point.y-t.y))
    let overlayPoint=CGPoint(x:start.x/logicalSize.width*screenRect.width,y:start.y/logicalSize.height*screenRect.height)
-   resizingGroup=selectedIDs.count>1 && ((!handle.isHidden && handle.frame.insetBy(dx:-12,dy:-12).contains(overlayPoint)) || (tool=="resize" && nodes.contains{selectedIDs.contains($0.id) && $0.visualBounds.contains(start)}))
-   if resizingGroup{dragStart=start}
+   resizingGroup=tool != "move" && selectedIDs.count>1 && ((!handle.isHidden && handle.frame.insetBy(dx:-12,dy:-12).contains(overlayPoint)) || (tool=="resize" && nodes.contains{selectedIDs.contains($0.id) && $0.visualBounds.contains(start)}))
+   if resizingGroup{dragStart=start;dragTarget=selected}
   }
-  if resizingGroup,let id=selected {
+  if resizingGroup,let id=dragTarget {
    onMove?(id,CGPoint(x:p.x-dragStart.x,y:p.y-dragStart.y),"groupResize",g.state == .ended || g.state == .cancelled);dragStart=p
    if g.state == .ended || g.state == .cancelled{resizingGroup=false};return
   }
@@ -171,15 +174,20 @@ final class DeviceSurface:UIView,UIDragInteractionDelegate,UIDropInteractionDele
   if g.state == .began {
    let translation=g.translation(in:self);dragStart=pointerOrigin ?? logical(CGPoint(x:point.x-translation.x,y:point.y-translation.y));changed=false
    if isSource {if operate{onPointer?("down",p)};return}
-   if selectedIDs.count>1 && nodes.contains(where:{selectedIDs.contains($0.id) && $0.selectionBounds.contains(dragStart)}){action="move"}
+   if tool=="move",let current=selected,nodes.contains(where:{$0.id==current && !$0.hidden && !$0.locked}){action="move"}
+   else if selectedIDs.count>1 && nodes.contains(where:{selectedIDs.contains($0.id) && $0.selectionBounds.contains(dragStart)}){action="move"}
    else if !handle.isHidden && handle.frame.insetBy(dx:-12,dy:-12).contains(CGPoint(x:point.x-screenRect.minX,y:point.y-screenRect.minY)){action="resize"}
    else if !rotateHandle.isHidden && rotateHandle.frame.insetBy(dx:-12,dy:-12).contains(CGPoint(x:point.x-screenRect.minX,y:point.y-screenRect.minY)){action="rotate"}
    else{action=tool=="resize" || tool=="rotate" ? tool : "move";selected=hit(dragStart)?.id;onSelect?(selected)}
    if selectedIDs.count>1{action="move"}
+   dragTarget=selected
    if let n=nodes.first(where:{$0.id==selected}){lastAngle=atan2(p.y-n.frame.midY,p.x-n.frame.midX)}
   }
   if isSource {if operate {onPointer?(g.state == .ended || g.state == .cancelled ? "up" : "move",p)};return}
-  if let id=selected {var delta=CGPoint(x:p.x-dragStart.x,y:p.y-dragStart.y);if let n=nodes.first(where:{$0.id==id}){if action=="rotate"{let angle=atan2(p.y-n.frame.midY,p.x-n.frame.midX);var change=(angle-lastAngle)*180/CGFloat.pi;if change>180{change-=360};if change < -180{change+=360};delta.x=change;lastAngle=angle}else if action=="resize"{delta=delta.applying(CGAffineTransform(rotationAngle: -n.rotation * .pi/180))}};onMove?(id,delta,action,g.state == .ended || g.state == .cancelled);dragStart=p}
+  if let id=dragTarget {var delta=CGPoint(x:p.x-dragStart.x,y:p.y-dragStart.y);if let n=nodes.first(where:{$0.id==id}){if action=="rotate"{let angle=atan2(p.y-n.frame.midY,p.x-n.frame.midX);var change=(angle-lastAngle)*180/CGFloat.pi;if change>180{change-=360};if change < -180{change+=360};delta.x=change;lastAngle=angle}else if action=="resize"{delta=delta.applying(CGAffineTransform(rotationAngle: -n.rotation * .pi/180))}};onMove?(id,delta,action,g.state == .ended || g.state == .cancelled);dragStart=p}
+ }
+ func gestureRecognizer(_ gestureRecognizer:UIGestureRecognizer,shouldBeRequiredToFailBy other:UIGestureRecognizer)->Bool{
+  !operate && !isSource && gestureRecognizer === panGesture && other.view is UIScrollView
  }
  override func gestureRecognizerShouldBegin(_ gestureRecognizer:UIGestureRecognizer)->Bool{ !isSource || operate || gestureRecognizer !== panGesture }
  func dragInteraction(_ interaction:UIDragInteraction,itemsForBeginning session:UIDragSession)->[UIDragItem]{
