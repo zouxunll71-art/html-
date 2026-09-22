@@ -47,9 +47,9 @@ renderNativeChrome(p,page);processNativeEffects(p);window.studioSelect(sourceSel
 async function poll(force=false){if(busy)return;busy=true;try{const p=await api('/runtime?side=web&after='+(force?-1:revision));if(p.model){revision=p.revision;render(p)}error.style.display='none'}catch(e){error.textContent=e.message;error.style.display='block'}finally{busy=false}}
 setInterval(poll,150);function resizePhone(){document.getElementById('phone-stage').style.transform=`scale(${Math.min(innerWidth/456,innerHeight/910)})`}addEventListener('resize',resizePhone);resizePhone();poll();
 
-// Ctrl+Q toggles studio mode, but never steals a character from an editable field or IME.
+// Command+Q toggles studio mode, but never steals a character from an editable field or IME.
 document.addEventListener('keydown',event=>{
- if(event.code!=='KeyQ'||!event.ctrlKey||event.repeat||event.isComposing||event.metaKey||event.altKey||event.shiftKey)return;
+ if(event.code!=='KeyQ'||!event.metaKey||event.repeat||event.isComposing||event.ctrlKey||event.altKey||event.shiftKey)return;
  const element=document.activeElement;
  if(element?.isContentEditable||((element?.tagName==='INPUT'||element?.tagName==='TEXTAREA')&&!element.readOnly&&!element.disabled))return;
  if(!window.webkit?.messageHandlers.studio)return;
@@ -59,7 +59,7 @@ document.addEventListener('keydown',event=>{
 // Editing tool shortcuts leave text fields and IME input untouched.
 document.addEventListener('keydown',event=>{
  const tool={KeyA:'move',KeyS:'resize',KeyD:'rotate'}[event.code];
- if(!tool||!event.ctrlKey||event.metaKey||event.altKey||event.shiftKey||event.repeat||event.isComposing)return;
+ if(!tool||!event.metaKey||event.ctrlKey||event.altKey||event.shiftKey!==(event.code==='KeyS')||event.repeat||event.isComposing)return;
  const element=document.activeElement;
  if(element?.isContentEditable||((element?.tagName==='INPUT'||element?.tagName==='TEXTAREA')&&!element.readOnly&&!element.disabled))return;
  if(!editMode||!window.webkit?.messageHandlers.studio)return;

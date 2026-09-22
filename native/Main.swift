@@ -33,7 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         let appItem = NSMenuItem(); mainMenu.addItem(appItem); let appMenu = NSMenu(); appItem.submenu = appMenu
         appMenu.addItem(withTitle: "关于原生工作台", action: #selector(about), keyEquivalent: "")
         appMenu.addItem(NSMenuItem.separator()); appMenu.addItem(withTitle: "隐藏原生工作台", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
-        appMenu.addItem(withTitle: "退出原生工作台", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenu.addItem(withTitle: "退出原生工作台", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
         let editItem = NSMenuItem(); editItem.title = "编辑"; mainMenu.addItem(editItem); let editMenu = NSMenu(title: "编辑"); editItem.submenu = editMenu
         for (title, action, key) in [("撤销", "undo:", "z"), ("剪切", "cut:", "x"), ("复制", "copy:", "c"), ("粘贴", "paste:", "v"), ("全选", "selectAll:", "a")] { editMenu.addItem(withTitle: title, action: Selector(action), keyEquivalent: key) }
         let viewItem = NSMenuItem(); viewItem.title = "显示"; mainMenu.addItem(viewItem); let viewMenu = NSMenu(title: "显示"); viewItem.submenu = viewMenu

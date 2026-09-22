@@ -330,7 +330,7 @@ $('composer').onsubmit = attempt(async event => {
 });
 $('prompt').onkeydown = event => { if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); if (!state.running[state.thread]&&!state.remoteRunning[state.thread]) $('composer').requestSubmit(); } };
 $('prompt').oninput = () => { $('prompt').style.height = 'auto'; $('prompt').style.height = Math.min(170, $('prompt').scrollHeight) + 'px'; };
-document.addEventListener('keydown', event => { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'n') { event.preventDefault(); attempt(newThread)(); } });
+document.addEventListener('keydown', event => { if ((event.metaKey && !event.ctrlKey) && event.key.toLowerCase() === 'n') { event.preventDefault(); attempt(newThread)(); } });
 function renderAttachments() { $('attachments').innerHTML = state.attachments.map(a => `<div class="attachment">${['file','folder'].includes(a.kind)?icon(a.kind==='folder'?'folder':'file-text'):`<button type="button" class="attachment-edit" data-edit="${a.id}" aria-label="标注图片 ${escape(a.name)}"><img src="${a.preview}" alt="${escape(a.name)}"></button>`}<span>${escape(a.name)}</span>${!a.kind||a.kind==='image'?`<button type="button" data-copy="${a.id}" aria-label="复制图片" title="复制图片">${icon('copy')}</button>`:''}<button type="button" data-remove="${a.id}" aria-label="移除附件">${icon('x')}</button></div>`).join(''); $('attachments').querySelectorAll('[data-copy]').forEach(b=>b.onclick=attempt(()=>copyWorkbenchImage(state.attachments.find(a=>a.id===b.dataset.copy).preview))); $('attachments').querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>window.editWorkbenchAttachment(b.dataset.edit)); $('attachments').querySelectorAll('[data-remove]').forEach(b => b.onclick = () => { const a = state.attachments.find(a => a.id === b.dataset.remove); URL.revokeObjectURL(a.preview); state.attachments = state.attachments.filter(a => a.id !== b.dataset.remove); renderAttachments(); }); icons(); }
 async function addFiles(files) { for (const file of files) { if(file.size>16*1024*1024)throw new Error('每个文件不能超过 16 MB'); if (state.attachments.length >= 6) throw new Error('每次最多附加 6 个文件'); const data = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(file); }); const result = await api('/api/upload', { data, name: file.name }); state.attachments.push({ ...result, preview: URL.createObjectURL(file) }); renderAttachments(); } }
 $('attach').onclick = () => $('file-input').click(); $('file-input').onchange = attempt(async () => { await addFiles($('file-input').files); $('file-input').value = ''; });
@@ -655,7 +655,7 @@ for(const [id,running] of [['top-edit-mode',false],['top-run-mode',true]])$(id).
 
 // Keep ordinary typing and IME input free of mode-switch shortcuts.
 document.addEventListener('keydown',event=>{
- if(event.code!=='KeyQ'||!event.ctrlKey||event.metaKey||event.altKey||event.shiftKey||event.repeat||event.isComposing)return;
+ if(event.code!=='KeyQ'||!event.metaKey||event.ctrlKey||event.altKey||event.shiftKey||event.repeat||event.isComposing)return;
  if($('dialog').open||window.imageViewerActive||window.annotationActive)return;
  event.preventDefault();event.stopPropagation();$(state.editing?'top-run-mode':'top-edit-mode').click();
 },true);
@@ -682,9 +682,10 @@ for(const scroller of document.querySelectorAll('.client-topbar,.topbar-center')
 // Editing tool shortcuts leave text fields and IME input untouched.
 document.addEventListener('keydown',event=>{
  const tool={KeyA:'move',KeyS:'resize',KeyD:'rotate'}[event.code];
- if(!tool||!event.ctrlKey||event.metaKey||event.altKey||event.shiftKey||event.repeat||event.isComposing)return;
+ if(!tool||!event.metaKey||event.ctrlKey||event.altKey||event.shiftKey!==(event.code==='KeyS')||event.repeat||event.isComposing)return;
  const element=document.activeElement;
  if(element?.isContentEditable||((element?.tagName==='INPUT'||element?.tagName==='TEXTAREA')&&!element.readOnly&&!element.disabled))return;
  if(!nativeHost||!state.editing||$('dialog').open||window.imageViewerActive||window.annotationActive)return;
  event.preventDefault();event.stopPropagation();nativeMessage({action:'editorTool',tool});
 },true);
+

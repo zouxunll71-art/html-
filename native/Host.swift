@@ -29,7 +29,9 @@ final class ClientHostController:UIViewController,WKScriptMessageHandler,WKNavig
  var projectLoading=false
  var mirrorTimer:Timer?
  var mirrorBusy=false
- override var keyCommands:[UIKeyCommand]?{let paste=UIKeyCommand(title:"粘贴",action:#selector(pasteClipboardShortcut),input:"v",modifierFlags:.command);paste.wantsPriorityOverSystemBehavior=true;return [paste]}
+ @objc func saveWorkbenchLayout(){guard embedded,!editor.historyGesture else{return};editor.save()}
+ @objc func toggleWorkbenchMode(){guard embedded else{return};editor.switchRunMode()}
+ override var keyCommands:[UIKeyCommand]?{let paste=UIKeyCommand(title:"粘贴",action:#selector(pasteClipboardShortcut),input:"v",modifierFlags:.command);paste.wantsPriorityOverSystemBehavior=true;let mode=UIKeyCommand(title:"运行 / 编辑",action:#selector(toggleWorkbenchMode),input:"q",modifierFlags:.command);mode.wantsPriorityOverSystemBehavior=true;let save=UIKeyCommand(title:"保存布局",action:#selector(saveWorkbenchLayout),input:"s",modifierFlags:.command);save.wantsPriorityOverSystemBehavior=true;return [paste,mode,save]}
  @objc func pasteClipboardShortcut(){web.evaluateJavaScript("document.activeElement?.id === 'prompt'"){[weak self] value,_ in
   guard let self=self else{return};guard value as? Bool == true else{self.web.paste(nil);return}
   if self.web.pasteImage?() != true,let text=UIPasteboard.general.string,let data=try? JSONSerialization.data(withJSONObject:[text]),let json=String(data:data,encoding:.utf8){self.web.evaluateJavaScript("window.receiveClipboardText?.(\(json)[0])",completionHandler:nil)}
@@ -108,7 +110,7 @@ final class ClientHostController:UIViewController,WKScriptMessageHandler,WKNavig
   editor.editingTools.axis = .vertical;editor.editingTools.spacing=4;editor.editingTools.distribution = .fillEqually
   editor.editingTools.arrangedSubviews.forEach{editor.editingTools.removeArrangedSubview($0);$0.removeFromSuperview()};editor.toolButtons.removeAll()
   for (key,title) in [("select","选择"),("clickMulti","多选"),("multi","框选"),("move","移动"),("resize","缩放"),("rotate","旋转")]{
-   let button=editor.button(title,{[weak self] in self?.editor.setTool(key)});if let shortcut=["move":"Ctrl+A","resize":"Ctrl+S","rotate":"Ctrl+D"][key]{button.accessibilityHint=shortcut};editor.toolButtons[key]=button;editor.editingTools.addArrangedSubview(button)
+   let button=editor.button(title,{[weak self] in self?.editor.setTool(key)});if let shortcut=["move":"Command+A","resize":"Command+Shift+S","rotate":"Command+D"][key]{button.accessibilityHint=shortcut};editor.toolButtons[key]=button;editor.editingTools.addArrangedSubview(button)
   }
   for (title,action) in [("＋",{[weak self] ()->Void in self?.editor.resizeSelectedResources(by:1.1)}),("−",{[weak self] ()->Void in self?.editor.resizeSelectedResources(by:1/1.1)}),("撤销",{[weak self] ()->Void in self?.editor.undo()}),("重做",{[weak self] ()->Void in self?.editor.redo()}),("组合",{[weak self] ()->Void in self?.editor.groupSelection()}),("解组",{[weak self] ()->Void in self?.editor.ungroupSelection()}),("选框色",{[weak self] ()->Void in self?.editor.pickSelectionColor()})]{editor.editingTools.addArrangedSubview(editor.button(title,action))}
   editor.moreTools.setTitle("更多",for:.normal);editor.moreTools.configuration?.title="更多";editor.editingTools.addArrangedSubview(editor.moreTools)
@@ -258,6 +260,10 @@ final class ClientHostController:UIViewController,WKScriptMessageHandler,WKNavig
  var window:UIWindow?
  override func buildMenu(with builder:UIMenuBuilder){
   super.buildMenu(with:builder)
+  builder.replaceChildren(ofMenu:.application){children in children.map{element in
+   if let command=element as? UIKeyCommand,command.input=="q",command.modifierFlags == .command,let action=command.action{return UICommand(title:command.title,image:command.image,action:action,propertyList:command.propertyList)}
+   return element
+  }}
   builder.replaceChildren(ofMenu:.standardEdit){children in children.map{element in
    if let command=element as? UICommand,command.action == #selector(UIResponderStandardEditActions.paste(_:)){return UIKeyCommand(title:"粘贴",action:#selector(ClientHostController.pasteClipboardShortcut),input:"v",modifierFlags:.command)}
    return element

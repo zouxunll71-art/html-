@@ -13,7 +13,7 @@ studio = target/'Studio'
 p=studio/'StudioController.swift'
 s=p.read_text().replace(' let inspectorTabs=', ' var clientEmbedded=false\n var clientSyncChanged:((String)->Void)?\n var clientModeChanged:((Bool)->Void)?\n var clientShowInspector:(()->Void)?\n var clientProjectChanged:((String)->Void)?\n var clientLeftContainer:UIView?\n var clientRightContainer:UIView?\n let clientEditingScroll=UIScrollView()\n let clientToolsScroll=UIScrollView()\n let clientPhoneScroll=ClientCanvasScrollView()\n var clientZoom:CGFloat=0.8\n var clientFit=true\n let inspectorTabs=',1)
 s=s.replace('running=mode.selectedSegmentIndex==1;', 'running=mode.selectedSegmentIndex==1;clientModeChanged?(running);',1)
-s=s.replace('input:"p",modifierFlags:[]','input:"q",modifierFlags:.control').replace('按 P','按 Ctrl+Q')
+s=s.replace('input:"p",modifierFlags:[]','input:"q",modifierFlags:.command').replace('按 P','按 Command+Q')
 s=s.replace('func loadProjects(){', 'func loadProjects(){if clientEmbedded{return};',1)
 s=s.replace('func useProject(_ p:StudioProject){','func useProject(_ p:StudioProject){\n  clientProjectChanged?(p.id)',1)
 s=s.replace('let encoded=Bridge.shared.token.addingPercentEncoding(withAllowedCharacters:.urlQueryAllowed) ?? "";web.load(URLRequest(url:URL(string:Bridge.shared.base+"/web?token="+encoded)!))','web.load(URLRequest(url:URL(string:"http://127.0.0.1:18777/studio/web")!))')
