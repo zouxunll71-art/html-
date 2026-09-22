@@ -108,7 +108,7 @@ final class ClientHostController:UIViewController,WKScriptMessageHandler,WKNavig
   editor.editingTools.axis = .vertical;editor.editingTools.spacing=4;editor.editingTools.distribution = .fillEqually
   editor.editingTools.arrangedSubviews.forEach{editor.editingTools.removeArrangedSubview($0);$0.removeFromSuperview()};editor.toolButtons.removeAll()
   for (key,title) in [("select","选择"),("clickMulti","多选"),("multi","框选"),("move","移动"),("resize","缩放"),("rotate","旋转")]{
-   let button=editor.button(title,{[weak self] in self?.editor.setTool(key)});editor.toolButtons[key]=button;editor.editingTools.addArrangedSubview(button)
+   let button=editor.button(title,{[weak self] in self?.editor.setTool(key)});if let shortcut=["move":"Ctrl+A","resize":"Ctrl+S","rotate":"Ctrl+D"][key]{button.accessibilityHint=shortcut};editor.toolButtons[key]=button;editor.editingTools.addArrangedSubview(button)
   }
   for (title,action) in [("＋",{[weak self] ()->Void in self?.editor.resizeSelectedResources(by:1.1)}),("−",{[weak self] ()->Void in self?.editor.resizeSelectedResources(by:1/1.1)}),("撤销",{[weak self] ()->Void in self?.editor.undo()}),("重做",{[weak self] ()->Void in self?.editor.redo()}),("组合",{[weak self] ()->Void in self?.editor.groupSelection()}),("解组",{[weak self] ()->Void in self?.editor.ungroupSelection()}),("选框色",{[weak self] ()->Void in self?.editor.pickSelectionColor()})]{editor.editingTools.addArrangedSubview(editor.button(title,action))}
   editor.moreTools.setTitle("更多",for:.normal);editor.moreTools.configuration?.title="更多";editor.editingTools.addArrangedSubview(editor.moreTools)
@@ -149,6 +149,8 @@ final class ClientHostController:UIViewController,WKScriptMessageHandler,WKNavig
   case "iosToolbar":
    guard embedded,editor.project != nil else{return}
    switch body["command"] as? String{case "run":editor.runIOS();case "link":editor.copyAllPages();case "repair":editor.repairSynchronization();case "details":editor.showSyncDetails();default:break}
+  case "editorTool":
+   guard embedded,let tool=body["tool"] as? String else{return};editor.selectToolShortcut(tool)
   case "previewMode":
    embed();guard let running=body["running"] as? Bool else{return};editor.mode.selectedSegmentIndex=running ? 1:0;editor.toggleRun()
   case "pasteClipboard":

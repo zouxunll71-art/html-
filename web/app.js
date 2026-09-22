@@ -678,3 +678,13 @@ for(const scroller of document.querySelectorAll('.client-topbar,.topbar-center')
  let hideScrollTimer;
  scroller.addEventListener('scroll',()=>{scroller.classList.add('scrolling');clearTimeout(hideScrollTimer);hideScrollTimer=setTimeout(()=>scroller.classList.remove('scrolling'),800)},{passive:true});
 }
+
+// Editing tool shortcuts leave text fields and IME input untouched.
+document.addEventListener('keydown',event=>{
+ const tool={KeyA:'move',KeyS:'resize',KeyD:'rotate'}[event.code];
+ if(!tool||!event.ctrlKey||event.metaKey||event.altKey||event.shiftKey||event.repeat||event.isComposing)return;
+ const element=document.activeElement;
+ if(element?.isContentEditable||((element?.tagName==='INPUT'||element?.tagName==='TEXTAREA')&&!element.readOnly&&!element.disabled))return;
+ if(!nativeHost||!state.editing||$('dialog').open||window.imageViewerActive||window.annotationActive)return;
+ event.preventDefault();event.stopPropagation();nativeMessage({action:'editorTool',tool});
+},true);

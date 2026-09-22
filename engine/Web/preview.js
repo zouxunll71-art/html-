@@ -55,3 +55,13 @@ document.addEventListener('keydown',event=>{
  if(!window.webkit?.messageHandlers.studio)return;
  event.preventDefault();event.stopPropagation();window.webkit.messageHandlers.studio.postMessage({type:'toggleMode'});
 });
+
+// Editing tool shortcuts leave text fields and IME input untouched.
+document.addEventListener('keydown',event=>{
+ const tool={KeyA:'move',KeyS:'resize',KeyD:'rotate'}[event.code];
+ if(!tool||!event.ctrlKey||event.metaKey||event.altKey||event.shiftKey||event.repeat||event.isComposing)return;
+ const element=document.activeElement;
+ if(element?.isContentEditable||((element?.tagName==='INPUT'||element?.tagName==='TEXTAREA')&&!element.readOnly&&!element.disabled))return;
+ if(!editMode||!window.webkit?.messageHandlers.studio)return;
+ event.preventDefault();event.stopPropagation();window.webkit.messageHandlers.studio.postMessage({type:'editorTool',tool});
+},true);
