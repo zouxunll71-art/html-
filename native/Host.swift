@@ -110,13 +110,13 @@ final class ClientHostController:UIViewController,WKScriptMessageHandler,WKNavig
   for (key,title) in [("select","选择"),("clickMulti","多选"),("multi","框选"),("move","移动"),("resize","缩放"),("rotate","旋转")]{
    let button=editor.button(title,{[weak self] in self?.editor.setTool(key)});editor.toolButtons[key]=button;editor.editingTools.addArrangedSubview(button)
   }
-  for (title,action) in [("撤销",{[weak self] ()->Void in self?.editor.undo()}),("重做",{[weak self] ()->Void in self?.editor.redo()}),("组合",{[weak self] ()->Void in self?.editor.groupSelection()}),("解组",{[weak self] ()->Void in self?.editor.ungroupSelection()}),("选框色",{[weak self] ()->Void in self?.editor.pickSelectionColor()})]{editor.editingTools.addArrangedSubview(editor.button(title,action))}
+  for (title,action) in [("＋",{[weak self] ()->Void in self?.editor.resizeSelectedResources(by:1.1)}),("−",{[weak self] ()->Void in self?.editor.resizeSelectedResources(by:1/1.1)}),("撤销",{[weak self] ()->Void in self?.editor.undo()}),("重做",{[weak self] ()->Void in self?.editor.redo()}),("组合",{[weak self] ()->Void in self?.editor.groupSelection()}),("解组",{[weak self] ()->Void in self?.editor.ungroupSelection()}),("选框色",{[weak self] ()->Void in self?.editor.pickSelectionColor()})]{editor.editingTools.addArrangedSubview(editor.button(title,action))}
   editor.moreTools.setTitle("更多",for:.normal);editor.moreTools.configuration?.title="更多";editor.editingTools.addArrangedSubview(editor.moreTools)
   for child in editor.editingTools.arrangedSubviews{
    guard let button=child as? UIButton else{continue}
    let title=button.configuration?.title ?? button.title(for:.normal) ?? "工具"
    for constraint in button.constraints where constraint.firstAttribute == .height{constraint.isActive=false}
-   button.accessibilityLabel=title;button.setTitle(title,for:.normal)
+   button.accessibilityLabel=title=="＋" ? "放大选中资源" : title=="−" ? "缩小选中资源" : title;button.setTitle(title,for:.normal)
    button.configuration?.image=nil;button.configuration?.title=title
    button.configuration?.contentInsets=NSDirectionalEdgeInsets(top:3,leading:2,bottom:3,trailing:2)
    button.configuration?.titleTextAttributesTransformer=UIConfigurationTextAttributesTransformer{var a=$0;a.font = .systemFont(ofSize:11,weight:.medium);return a}

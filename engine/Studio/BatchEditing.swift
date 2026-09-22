@@ -80,3 +80,37 @@ extension StudioController {
   }
  }
 }
+
+extension StudioController {
+ /// Scale the selected resources around their shared center, keeping descendants
+ /// and typography in proportion. Selection geometry follows the updated nodes.
+ func resizeSelectedResources(by requestedFactor:CGFloat){
+  guard !running,requestedFactor.isFinite,requestedFactor>0,let page=page else{return}
+  let selected=selectionIDs
+  guard !selected.isEmpty else{setStatus("请先选择要缩放的资源");return}
+  let map=Dictionary(page.nodes.map{($0.id,$0)},uniquingKeysWith:{_,last in last})
+  let affected=page.nodes.filter{node in
+   if selected.contains(node.id){return true}
+   var parent=node.parent,seen=Set<String>()
+   while let id=parent,seen.insert(id).inserted{if selected.contains(id){return true};parent=map[id]?.parent}
+   return false
+  }
+  let box=page.nodes.filter{selected.contains($0.id)}.reduce(CGRect.null){$0.union($1.selectionBounds)}
+  guard !box.isNull,box.width>0,box.height>0 else{return}
+  let minimum=affected.filter{$0.width>0 && $0.height>0}.map{1/min($0.width,$0.height)}.max() ?? 0.001
+  let factor=requestedFactor<1 ? min(1,max(minimum,requestedFactor)):requestedFactor
+  guard factor != 1 else{return}
+  let ids=Set(affected.map(\.id));checkpoint();scrollRelay.stopMomentum()
+  for i in project!.pages[pageIndex].nodes.indices where ids.contains(project!.pages[pageIndex].nodes[i].id){
+   var n=project!.pages[pageIndex].nodes[i]
+   n.x=box.midX+(n.x-box.midX)*factor;n.y=box.midY+(n.y-box.midY)*factor
+   n.width*=factor;n.height*=factor;n.fontSize*=factor;n.cornerRadius*=factor;n.strokeWidth*=factor;n.capPoints*=factor
+   if let h=n.lineHeight{n.lineHeight=h*factor};if let spacing=n.letterSpacing{n.letterSpacing=spacing*factor}
+   if var spans=n.textSpans{for index in spans.indices{if let size=spans[index].fontSize{spans[index].fontSize=size*factor}};n.textSpans=spans}
+   if let w=n.contentWidth{n.contentWidth=w*factor};if let h=n.contentHeight{n.contentHeight=h*factor}
+   if let x=n.scrollX{n.scrollX=x*factor};if let y=n.scrollY{n.scrollY=y*factor}
+   project!.pages[pageIndex].nodes[i]=n
+  }
+  changed()
+ }
+}
