@@ -102,8 +102,8 @@ async function ensureStudio() {
 }
 async function project(id) { const {projects} = await sidebar(); const p = projects.find(p => p.id === id); if (!p) throw new Error('项目不存在，请重新选择项目'); return p; }
 function conversation(id) { const c = registry.conversations.find(c => c.id === id)||sidebarSnapshot.conversations.find(c=>c.id===id); if (!c) throw new Error('对话暂未同步，请刷新列表后重试'); return c; }
-async function activate(id) { if ([...running.keys()].some(t => conversation(t).projectId !== id)) throw new Error('另一项目正在修改中，请先停止或等待完成再切换项目。'); const p=await project(id); if(p.nativePreview)await studio('/activate-project', { id:p.nativeProjectId||id }); registry.selectedProject = id; save(); }
-const instructions = `你正在用户自己的 HTML 原生工作台客户端中工作。当前工作目录就是此 App 的独立源目录。先读取该目录 AGENTS.md 和 HTML 编写规范，用户让修改时直接编辑文件并验证，不要只给建议。工作台自动监视源码并热同步 HTML 和 UIKit 模拟器；通常无需另开浏览器或模拟器、无需重启工作台。只修改用户要求的项目，不要修改其他项目、客户端或官方 Codex 安装包。遵循截图和原图，不做未经要求的重新设计。用户未要求时不使用子代理。用中文清晰报告实际修改和验证结果，不把未测试的内容说成已验证。`;
+async function activate(id) { const p=await project(id); if(p.nativePreview)await studio('/activate-project', { id:p.nativeProjectId||id }); registry.selectedProject = id; save(); }
+const instructions = `你正在用户自己的 HTML 原生工作台客户端中工作。当前工作目录就是此 App 的独立源目录。先读取该目录 AGENTS.md 和 HTML 编写规范，用户让修改时直接编辑文件并验证，不要只给建议。系统允许多个项目同时开发，每个对话只操作自己的工作目录。工作台一次显示一个项目的 HTML 和 UIKit 预览；后台任务不会因切换预览而停止，切回项目后同步其最新源码。不要因后台验证而自动激活项目、抢占其他项目的预览；通常无需另开浏览器或模拟器、无需重启工作台。只修改用户要求的项目，不要修改其他项目、客户端或官方 Codex 安装包。遵循截图和原图，不做未经要求的重新设计。用户未要求时不使用子代理。用中文清晰报告实际修改和验证结果，不把未测试的内容说成已验证。`;
 async function resume(id) {
   const c=conversation(id),linkedProject=sidebarSnapshot.projects.find(p=>p.id===c.projectId);
   const cwd=workingDirectory(c,linkedProject);if(cwd!==c.sourcePath){c.previousSourcePath=c.sourcePath;c.sourcePath=cwd;loaded.delete(id);save();}
@@ -308,18 +308,16 @@ async function handle(req, res) {
       case '/api/project/create': {
         const name = String(body.name || '').trim(); if (!name || name.length > 80) throw new Error('项目名称须为 1–80 个字');
         if ((await sidebar()).projects.some(p => p.name === name)||(await studio('/projects')).some(p=>p.name===name)) throw new Error('已有同名项目，请换一个名称');
-        if (running.size) throw new Error('请等待当前修改完成后新建项目');
         const p = await studio('/new', { name }); await registerStudioProject(p,true); registry.selectedProject = p.id; registry.selectedThread = null; save(); return json(res, p);
       }
       case '/api/project/import': {
-        if (running.size) throw new Error('请等待当前修改完成后导入项目');
         const location = directoryInput(body.path);
         if (!fs.existsSync(path.join(location, 'app.json'))) throw new Error('请选择包含 app.json 的 HTML 原生项目文件夹');
         const p = await studio('/import', { path: location }); registry.hiddenNativeProjects=(registry.hiddenNativeProjects||[]).filter(id=>id!==p.id); await registerStudioProject(p,true); registry.selectedProject = p.id; registry.selectedThread = null; save(); return json(res, p);
       }
       case '/api/project/connect': {
         const p=await project(body.id);if(!p.codexId)throw new Error('请先选择 Codex 项目');
-        if(running.size)throw new Error('请等待当前修改完成后接入');
+        if([...running.keys(),...startingTurns].some(id=>{const c=conversation(id),owner=sidebarSnapshot.projects.find(x=>x.id===c.projectId);return c.projectId===p.id || (owner?.codexId && owner.codexId===p.codexId) || (owner?.nativeProjectId && owner.nativeProjectId===p.nativeProjectId)}))throw new Error('此项目仍有任务运行，请完成后再重新绑定源码目录；其他项目可以继续工作');
         let target;
         if(body.nativeId){target=(await studio('/projects')).find(n=>n.id===body.nativeId);if(!target)throw new Error('工作台项目不存在');}
         else {const source=await ensurePreviewSource(p.sourcePath,p.name,ROOT);target=await studio('/import',{path:source});}
@@ -363,7 +361,7 @@ async function handle(req, res) {
         startingTurns.add(c.id);
         try {
           const prompt = String(body.text || '').trim(); if (!prompt && !body.attachments?.length) throw new Error('请输入需求或添加附件');
-          if(c.projectId)await activate(c.projectId);
+          // Submitting a turn is scoped to its conversation; it must not switch the shared preview.
           const input = [{ type: 'text', text: prompt || '请查看这张参考图。', text_elements: [] }];
           input.push(...await capabilities.inputs(c.sourcePath,body.skills));
           if((body.attachments||[]).length>6)throw new Error('每次最多附加 6 个文件');
