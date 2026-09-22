@@ -2,6 +2,7 @@ import UIKit
 final class DeviceSurface:UIView,UIDragInteractionDelegate,UIDropInteractionDelegate,UIGestureRecognizerDelegate {
  let video=AndroidVideo();let chrome=DeviceChrome();let screenMask=CALayer();let imageView=UIImageView();let overlay=UIView();let selectionClip=UIView();let selectionMask=CAShapeLayer();let selection=UIView();let handle=UIView();let rotateHandle=UIView()
  let guides=CAShapeLayer()
+ private var memberOutlines:[String:CAShapeLayer]=[:]
  var guideX:CGFloat? {didSet{setNeedsLayout()}}
  var guideY:CGFloat? {didSet{setNeedsLayout()}}
  var selectedIDs=Set<String>() {didSet{setNeedsLayout()}};var onMarquee:((CGRect)->Void)?;private var marqueeStart:CGPoint?
@@ -95,6 +96,9 @@ final class DeviceSurface:UIView,UIDragInteractionDelegate,UIDropInteractionDele
   let guidePath=UIBezierPath()
   if !operate{if let x=guideX{let px=x/logicalSize.width*screenRect.width;guidePath.move(to:CGPoint(x:px,y:0));guidePath.addLine(to:CGPoint(x:px,y:screenRect.height))};if let y=guideY{let py=y/logicalSize.height*screenRect.height;guidePath.move(to:CGPoint(x:0,y:py));guidePath.addLine(to:CGPoint(x:screenRect.width,y:py))}}
   guides.frame=overlay.bounds;guides.path=guidePath.cgPath
+  let activeMembers=selectedIDs.count>1 && !operate ? selectedIDs:Set<String>()
+  for id in Array(memberOutlines.keys) where !activeMembers.contains(id){memberOutlines.removeValue(forKey:id)?.removeFromSuperlayer()}
+  for outline in memberOutlines.values{outline.isHidden=true}
   if operate {selection.isHidden=true;handle.isHidden=true;rotateHandle.isHidden=true;return}
   guard let n=nodes.first(where:{$0.id==selected}) else{selection.isHidden=true;handle.isHidden=true;rotateHandle.isHidden=true;return}
   let map=Dictionary(nodes.map{($0.id,$0)},uniquingKeysWith:{_,latest in latest})
@@ -105,7 +109,18 @@ final class DeviceSurface:UIView,UIDragInteractionDelegate,UIDropInteractionDele
   if selectedIDs.count<=1 && (clip.isNull || !clip.intersects(n.selectionBounds)){selection.isHidden=true;handle.isHidden=true;rotateHandle.isHidden=true;return}
   if selectedIDs.count>1 {
    let rect=nodes.filter{selectedIDs.contains($0.id)}.reduce(CGRect.null){$0.union($1.selectionBounds)}
-   selection.isHidden=false;selection.transform = .identity;selection.frame=actual(rect);handle.isHidden=isSource;handle.frame=CGRect(x:selection.frame.maxX-6,y:selection.frame.maxY-6,width:12,height:12);rotateHandle.isHidden=true;return
+   // Each resource keeps its own boundary; the union only positions the group resize handle.
+   CATransaction.begin();CATransaction.setDisableActions(true)
+   for item in nodes where selectedIDs.contains(item.id){
+    let outline=memberOutlines[item.id] ?? CAShapeLayer()
+    if outline.superlayer==nil{overlay.layer.addSublayer(outline);memberOutlines[item.id]=outline}
+    outline.frame=overlay.bounds;outline.fillColor=UIColor.clear.cgColor;outline.strokeColor=selectionColor.cgColor;outline.lineWidth=2
+    outline.path=UIBezierPath(rect:actual(item.selectionBounds)).cgPath
+    let mask=(outline.mask as? CAShapeLayer) ?? CAShapeLayer();mask.frame=overlay.bounds
+    let region=clippingRect(for:item,map:map);mask.path=region.isNull ? nil:UIBezierPath(rect:actual(region)).cgPath;outline.mask=mask;outline.isHidden=region.isNull
+   }
+   CATransaction.commit()
+   selection.isHidden=true;selection.transform = .identity;selection.frame=actual(rect);handle.isHidden=isSource;handle.frame=CGRect(x:selection.frame.maxX-6,y:selection.frame.maxY-6,width:12,height:12);rotateHandle.isHidden=true;return
   }
   selection.isHidden=false;handle.isHidden=isSource;rotateHandle.isHidden=isSource
   selection.transform = .identity;selection.frame=actual(n.selectionBounds)
