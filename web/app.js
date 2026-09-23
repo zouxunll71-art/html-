@@ -163,6 +163,7 @@ function itemHTML(item) {
   if (item.type === 'clientError') return `<div class="turn-error">${escape(item.text)}</div>`;
   return '';
 }
+const pendingMessages=new Map();
 let renderTimer,lastMessagesMarkup='',lastMessagesThread=null;
 const messageExpansion=new Map();
 // Toggle synchronously so polling cannot overwrite a pending native details click.
@@ -181,7 +182,11 @@ function renderMessages(immediate = false) {
       const process=expanded?group.process.map(item=>{const node=itemHTML(item);return node?`<div data-process-item="${escape(item.id||'')}">${node}</div>`:''}).join(''):'';
       return users+(group.process.length?`<details class="turn-process" data-detail-key="${escape(key)}"><summary>${group.active?'正在处理':'查看执行过程'} · ${group.process.length} 项</summary><div class="turn-process-content">${process}</div></details>`:'')+group.visible.filter(i=>i.type!=='userMessage').map(itemHTML).join('');
     }).join('');
-    const markup=(html || emptyChat) + (state.running[state.thread] ? `<div class="typing">${icon('loader-circle')}Codex 正在处理…</div>` : '');
+    const pending=pendingMessages.get(state.thread);
+    if(pending&&[...state.items.values()].some(i=>i.type==='userMessage'&&!pending.known.has(i.id)&&(i.id===pending.id||i.clientUserMessageId===pending.id||userMessageText(i.content)===pending.matchText)))pendingMessages.delete(state.thread);
+    const outgoing=pendingMessages.get(state.thread);
+    const pendingHTML=outgoing?itemHTML({type:'userMessage',content:[{type:'text',text:outgoing.text||'图片参考'}]})+`<small class="muted">${escape(outgoing.status)}</small>`:'';
+    const markup=(html+pendingHTML || emptyChat) + (state.running[state.thread] ? `<div class="typing">${icon('loader-circle')}Codex 正在处理…</div>` : '');
     if(markup===lastMessagesMarkup&&state.thread===lastMessagesThread)return;
     const images=new Map([...el.querySelectorAll('img.conversation-image')].filter(img=>img.complete&&img.naturalWidth>0).map(img=>[img.getAttribute('src'),img]));
     lastMessagesMarkup=markup;lastMessagesThread=state.thread;el.innerHTML=markup;
@@ -318,15 +323,18 @@ $('composer').onsubmit = attempt(async event => {
   event.preventDefault(); if (state.running[state.thread]) { await api('/api/turn/stop', { threadId: state.thread }); return; }
   const value = $('prompt').value.trim(); if ((!value && !state.attachments.length) || state.pendingSend) return;
   state.pendingSend = true; updateRunning();
+  let sendThread=state.thread;const outgoing={text:value||state.attachments.map(a=>a.name||'附件').join('、'),matchText:value||'请查看这张参考图。',known:new Set(state.items.keys()),status:'发送中…'};pendingMessages.set(sendThread,outgoing);renderMessages(true);
   try {
-    if (!state.thread) await newThread();
+    if (!state.thread) {await newThread();pendingMessages.delete(sendThread);sendThread=state.thread;pendingMessages.set(sendThread,outgoing);renderMessages(true);}
     const submissionKey=JSON.stringify([state.thread,value,state.attachments.map(a=>a.id),state.selectedSkills.map(s=>s.path)]);
     if(state.submissionKey!==submissionKey){state.submissionKey=submissionKey;state.clientUserMessageId=crypto.randomUUID()}
+    outgoing.id=state.clientUserMessageId;
     const delivery=await api('/api/turn/start', { clientUserMessageId:state.clientUserMessageId,threadId: state.thread, text: value, model: $('model').value, effort: $('effort').value, serviceTier:speedTier, attachments: state.attachments.map(a => a.id), skills: state.selectedSkills.map(s=>s.path) });
+    outgoing.status='已提交，等待 Codex 接收';renderMessages(true);
     state.submissionKey=null;state.clientUserMessageId=null;
     if(delivery.queued)toast('已交给 Codex 原对话，沿用原对话的模型与权限；请保持 Codex 打开');
-    $('prompt').value = ''; $('prompt').style.height = ''; state.selectedSkills=[];renderSelectedSkills(); state.attachments.forEach(a => URL.revokeObjectURL(a.preview)); state.attachments = []; renderAttachments(); await refreshRegistry();
-  } finally { state.pendingSend = false; updateRunning(); }
+    if(state.thread===sendThread&&$('prompt').value.trim()===value){$('prompt').value = ''; $('prompt').style.height = ''; state.selectedSkills=[];renderSelectedSkills(); state.attachments.forEach(a => URL.revokeObjectURL(a.preview)); state.attachments = []; renderAttachments();} void refreshRegistry().catch(error=>toast(error.message,true));
+  } catch(error) {outgoing.status='发送未确认，草稿已保留：'+error.message;renderMessages(true);throw error;} finally { state.pendingSend = false; updateRunning(); }
 });
 $('prompt').onkeydown = event => { if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); if (!state.running[state.thread]&&!state.remoteRunning[state.thread]) $('composer').requestSubmit(); } };
 $('prompt').oninput = () => { $('prompt').style.height = 'auto'; $('prompt').style.height = Math.min(170, $('prompt').scrollHeight) + 'px'; };

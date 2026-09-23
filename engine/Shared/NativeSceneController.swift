@@ -1,6 +1,15 @@
 import UIKit
 import CoreText
-final class PassThroughContainer:UIView {var acceptsBackgroundTap=false;override func hitTest(_ point:CGPoint,with event:UIEvent?)->UIView?{let target=super.hitTest(point,with:event);return target===self && !acceptsBackgroundTap ? nil:target}}
+// Match visible overflow: UIKit's default hitTest discards children outside parent bounds.
+func studioContainerHitTest(_ container:UIView,_ point:CGPoint,_ event:UIEvent?,acceptsBackground:Bool)->UIView?{
+ guard !container.isHidden,container.alpha>0.01,container.isUserInteractionEnabled else{return nil}
+ let inside=container.point(inside:point,with:event)
+ if !inside && container.clipsToBounds{return nil}
+ for child in container.subviews.reversed(){if let target=child.hitTest(container.convert(point,to:child),with:event){return target}}
+ return inside && acceptsBackground ? container:nil
+}
+final class PassThroughContainer:UIView {var acceptsBackgroundTap=false;override func hitTest(_ point:CGPoint,with event:UIEvent?)->UIView?{studioContainerHitTest(self,point,event,acceptsBackground:acceptsBackgroundTap)}}
+final class PassThroughImageView:UIImageView {var acceptsBackgroundTap=false;override func hitTest(_ point:CGPoint,with event:UIEvent?)->UIView?{studioContainerHitTest(self,point,event,acceptsBackground:acceptsBackgroundTap)}}
 final class NativeSceneController:UIViewController,UIScrollViewDelegate,UITextFieldDelegate,UITextViewDelegate,UIGestureRecognizerDelegate {
  var scene:[String:Any]=[:];var views:[String:UIView]=[:];var kinds:[String:String]=[:];var specs:[String:[String:Any]]=[:]
  var modelLoader:((String,@escaping(Result<Data,Error>)->Void)->Void)?;var paintStore:NativeModelView.Store?;var modelProject="";var editingModels=false {didSet{for view in views.values{(view as? NativeModelView)?.renderer.isUserInteractionEnabled = !editingModels}}}
@@ -34,16 +43,17 @@ final class NativeSceneController:UIViewController,UIScrollViewDelegate,UITextFi
   if abs(renderedWidth-view.bounds.width)>0.5{renderedWidth=view.bounds.width;specs.removeAll()}
   let nodes=page["nodes"] as? [[String:Any]] ?? [];let ids=Set(nodes.compactMap{$0["id"] as? String})
   for id in Array(views.keys) where !ids.contains(id){scrollWork.removeValue(forKey:id)?.cancel();localScrollUntil.removeValue(forKey:id);NSLayoutConstraint.deactivate(layoutConstraints.removeValue(forKey:id) ?? []);NSLayoutConstraint.deactivate(contentConstraints.removeValue(forKey:id) ?? []);views.removeValue(forKey:id)?.removeFromSuperview();kinds.removeValue(forKey:id);specs.removeValue(forKey:id)}
-  for n in nodes {
+  for (nodeIndex,n) in nodes.enumerated() {
    guard let id=n["id"] as? String,let declaredKind=n["type"] as? String else{continue};let kind=n["modelAsset"] is String ? "model3d" : declaredKind
-   if let previous=specs[id],NSDictionary(dictionary:previous).isEqual(to:n),let cached=views[id]{cached.superview?.bringSubviewToFront(cached);continue}
+   let paintOrder=CGFloat(n["layerOrder"] as? Double ?? Double(nodeIndex))
+   if let previous=specs[id],NSDictionary(dictionary:previous).isEqual(to:n),let cached=views[id]{cached.layer.zPosition=paintOrder;cached.superview?.bringSubviewToFront(cached);continue}
    var v=views[id]
    if kinds[id] != kind {
     NSLayoutConstraint.deactivate(layoutConstraints.removeValue(forKey:id) ?? []);NSLayoutConstraint.deactivate(contentConstraints.removeValue(forKey:id) ?? []);v?.removeFromSuperview()
     switch kind {
     case "text":let label=UILabel();label.numberOfLines=0;v=label
     case "model3d":v=NativeModelView()
-    case "image":v=UIImageView()
+    case "image":v=PassThroughImageView()
     case "path","model":v=NativeDrawingView()
     case "nativeButton","nativeCheckbox":let b=UIButton(type:.system);b.addTarget(self,action:#selector(controlChanged(_:)),for:.touchUpInside);v=b
     case "nativeSwitch":let c=UISwitch();c.addTarget(self,action:#selector(controlChanged(_:)),for:.valueChanged);v=c
@@ -56,7 +66,7 @@ final class NativeSceneController:UIViewController,UIScrollViewDelegate,UITextFi
     case "nativeTextView":let c=UITextView();c.delegate=self;v=c
     case "container":v=PassThroughContainer()
     case "scroll":let c=UIScrollView();c.contentInsetAdjustmentBehavior = .never;c.delegate=self;c.keyboardDismissMode = .interactive;v=c
-    default:v=UIView()
+    default:v=PassThroughContainer()
     }
     guard let fresh=v else{continue};fresh.accessibilityIdentifier=id;if enteringAnimation{fresh.alpha=0}
     if !(fresh is NativeModelView) && !(fresh is UIControl) && !(fresh is UITextView) && !((page["events"] as? [String:[String:Any]])?[id]?["action"] as? String ?? "").isEmpty{fresh.addGestureRecognizer(UITapGestureRecognizer(target:self,action:#selector(tapped(_:))))}
@@ -64,7 +74,10 @@ final class NativeSceneController:UIViewController,UIScrollViewDelegate,UITextFi
    }
    guard let item=v else{continue};specs[id]=n
    if !(item is NativeModelView) && !(item is UIControl) && !(item is UITextView) && !(n["action"] as? String ?? "").isEmpty && (item.gestureRecognizers ?? []).isEmpty{item.addGestureRecognizer(UITapGestureRecognizer(target:self,action:#selector(tapped(_:))))}
-   if let container=item as? PassThroughContainer{container.acceptsBackgroundTap = !((page["events"] as? [String:[String:Any]])?[id]?["action"] as? String ?? "").isEmpty || UIColor(studioHex:n["fill"] as? String ?? "#00000000").cgColor.alpha>0}
+   let action=(page["events"] as? [String:[String:Any]])?[id]?["action"] as? String ?? ""
+   let acceptsTap = !action.isEmpty || id.hasPrefix("$shade")
+   if let container=item as? PassThroughContainer{container.acceptsBackgroundTap=acceptsTap}
+   if let image=item as? PassThroughImageView{image.acceptsBackgroundTap=acceptsTap}
    let parent=views[n["parent"] as? String ?? ""] ?? view!
    if item.superview !== parent{NSLayoutConstraint.deactivate(layoutConstraints.removeValue(forKey:id) ?? []);parent.addSubview(item)}
    item.translatesAutoresizingMaskIntoConstraints=false
@@ -72,13 +85,13 @@ final class NativeSceneController:UIViewController,UIScrollViewDelegate,UITextFi
     let lead=(parent as? UIScrollView)?.contentLayoutGuide.leadingAnchor ?? parent.leadingAnchor,top=(parent as? UIScrollView)?.contentLayoutGuide.topAnchor ?? parent.topAnchor
     let constraints=[item.leadingAnchor.constraint(equalTo:lead),item.topAnchor.constraint(equalTo:top),item.widthAnchor.constraint(equalToConstant:1),item.heightAnchor.constraint(equalToConstant:1)];layoutConstraints[id]=constraints;NSLayoutConstraint.activate(constraints)
    }
-   if let control=item as? UIControl{control.isSelected=n["selected"] as? Bool ?? false;control.isEnabled = !(n["disabled"] as? Bool ?? false)};item.isHidden=n["hidden"] as? Bool ?? false;item.isUserInteractionEnabled = !(n["disabled"] as? Bool ?? false)
+   if let control=item as? UIControl{control.isSelected=n["selected"] as? Bool ?? false;control.isEnabled = !(n["disabled"] as? Bool ?? false)};item.isHidden=n["hidden"] as? Bool ?? false;item.isUserInteractionEnabled = !(n["disabled"] as? Bool ?? false) && (!(item is UILabel || item is NativeDrawingView) || acceptsTap)
    var node=StudioNode();if let d=try? JSONSerialization.data(withJSONObject:n),let decoded=try? JSONDecoder().decode(StudioNode.self,from:d){node=decoded}
    item.backgroundColor=UIColor(studioHex:n["fill"] as? String ?? "#00000000");item.alpha=number(n,"opacity",1);item.layer.cornerRadius=number(n,"cornerRadius");item.layer.borderWidth=number(n,"strokeWidth");item.layer.borderColor=UIColor(studioHex:n["strokeColor"] as? String ?? "#00000000").cgColor;item.clipsToBounds=node.clipsContent
    if let g=n["gradient"] as? [String:Any],let colors=g["colors"] as? [String]{let layer=(item.layer.sublayers?.first{$0.name=="studio.gradient"} as? CAGradientLayer) ?? CAGradientLayer();layer.name="studio.gradient";layer.colors=colors.map{UIColor(studioHex:$0).cgColor};layer.locations=(g["locations"] as? [Double])?.map{NSNumber(value:$0)};let start=g["start"] as? [CGFloat] ?? [0,0],end=g["end"] as? [CGFloat] ?? [0,1];layer.startPoint=CGPoint(x:start[0],y:start[1]);layer.endPoint=CGPoint(x:end[0],y:end[1]);layer.cornerRadius=item.layer.cornerRadius;if layer.superlayer==nil{item.layer.insertSublayer(layer,at:0)}}else{item.layer.sublayers?.first{$0.name=="studio.gradient"}?.removeFromSuperlayer()}
    if let sh=n["shadow"] as? [String:Any]{item.layer.shadowColor=UIColor(studioHex:sh["color"] as? String ?? "#00000033").cgColor;item.layer.shadowOpacity=1;item.layer.shadowOffset=CGSize(width:number(sh,"x"),height:number(sh,"y"));item.layer.shadowRadius=number(sh,"blur")/2}else{item.layer.shadowOpacity=0}
    let color=UIColor(studioHex:n["color"] as? String ?? "#17212B");item.tintColor=color
-   if let model=item as? NativeModelView{model.loadAsset=modelLoader;model.store=paintStore;model.onSave={[weak self] value in self?.onEvent?(["node":id,"value":value])};model.update(n,project:modelProject,editing:editingModels)}
+   if let model=item as? NativeModelView{model.loadAsset=modelLoader;model.store=paintStore;model.onSave={[weak self] value in self?.onEvent?(["node":id,"value":value])};model.onAnalysis={[weak self] value in self?.onEvent?(["node":id+"#analysis","value":value])};model.update(n,project:modelProject,editing:editingModels)}
    if let drawing=item as? NativeDrawingView {drawing.specification=n;drawing.isOpaque=false;drawing.backgroundColor = .clear}
    let fontScale=StudioWidthScale.factor(view.bounds.width>0 ? view.bounds.width:number(scene,"width",393),designWidth:number(scene,"width",393));var scaledNode=node;scaledNode.fontSize *= fontScale;let font=fonts.font(scaledNode),text=n["text"] as? String ?? ""
    if let label=item as? UILabel {
@@ -97,8 +110,10 @@ final class NativeSceneController:UIViewController,UIScrollViewDelegate,UITextFi
    if let c=item as? UIProgressView{c.progress=Float(number(n,"value"))}
    if let c=item as? UISegmentedControl{c.setTitleTextAttributes([.font:font],for:.normal);c.setTitleTextAttributes([.font:font],for:.selected);let options=n["options"] as? [String] ?? [];if c.numberOfSegments != options.count || options.enumerated().contains(where:{c.titleForSegment(at:$0.offset) != $0.element}){c.removeAllSegments();for(i,title)in options.enumerated(){c.insertSegment(withTitle:title,at:i,animated:false)}};c.selectedSegmentIndex=Int(number(n,"value"))}
    if let c=item as? UIStepper{c.minimumValue=Double(number(n,"minimum"));c.maximumValue=Double(number(n,"maximum",100));c.stepValue=Double(number(n,"step",1));c.value=Double(number(n,"value"))}
-   parent.bringSubviewToFront(item)
+   item.layer.zPosition=paintOrder;parent.bringSubviewToFront(item)
   }
+  // UIKit hit testing follows sibling order, so it must agree with the visible layer order.
+  for entry in nodes.enumerated().sorted(by:{number($0.element,"layerOrder",CGFloat($0.offset)) < number($1.element,"layerOrder",CGFloat($1.offset))}){if let id=entry.element["id"] as? String,let item=views[id]{item.superview?.bringSubviewToFront(item)}}
   layoutNodes()
   applying=false
  }

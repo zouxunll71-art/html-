@@ -6,7 +6,7 @@ struct StudioPage: Codable { var id=UUID().uuidString; var name:String; var rout
 struct StudioGradient:Codable,Equatable {var colors:[String];var locations:[CGFloat]?;var start:[CGFloat]?;var end:[CGFloat]?}
 struct StudioShadow:Codable,Equatable {var color:String?;var x:CGFloat?;var y:CGFloat?;var blur:CGFloat?}
 struct StudioNode: Codable,Equatable {
- var symbol:String?;var textKey:String?;var placeholderKey:String?;var selected:Bool?
+ var layerOrder:Double?;var symbol:String?;var textKey:String?;var placeholderKey:String?;var selected:Bool?
  var parent:String?;var gradient:StudioGradient?;var shadow:StudioShadow?;var contentWidth:CGFloat?;var contentHeight:CGFloat?;var scrollX:CGFloat?;var scrollY:CGFloat?;var clip:Bool?;var scale:CGFloat?
  var fontFamily:String?;var italic:Bool?;var lineHeight:CGFloat?;var letterSpacing:CGFloat?
  var textSpans:[StudioTextSpan]?
@@ -18,10 +18,11 @@ struct StudioNode: Codable,Equatable {
  // A layout-only scroll container must not crop content at the safe-area boundary.
  var clipsContent:Bool { clip == true || type == "image" || (type == "scroll" && ((contentWidth ?? width)>width+0.5 || (contentHeight ?? height)>height+0.5)) }
  var frame:CGRect { get { CGRect(x:x,y:y,width:width,height:height) } set { x=newValue.minX;y=newValue.minY;width=newValue.width;height=newValue.height } }
- enum CodingKeys:String,CodingKey { case symbol,textKey,placeholderKey,selected,parent,gradient,shadow,contentWidth,contentHeight,scrollX,scrollY,clip,scale,fontFamily,italic,lineHeight,letterSpacing,textSpans,sharedKey,groupID,isOn,value,placeholder,options,strokeColor,strokeWidth,id,name,type,text,asset,x,y,width,height,rotation,opacity,fontSize,fontName,fontWeight,color,fill,fit,alignment,anchor,locked,hidden,cornerRadius,capPixels,capPoints }
+ enum CodingKeys:String,CodingKey { case layerOrder,symbol,textKey,placeholderKey,selected,parent,gradient,shadow,contentWidth,contentHeight,scrollX,scrollY,clip,scale,fontFamily,italic,lineHeight,letterSpacing,textSpans,sharedKey,groupID,isOn,value,placeholder,options,strokeColor,strokeWidth,id,name,type,text,asset,x,y,width,height,rotation,opacity,fontSize,fontName,fontWeight,color,fill,fit,alignment,anchor,locked,hidden,cornerRadius,capPixels,capPoints }
  init() {}
  init(from decoder:Decoder)throws {
   let c=try decoder.container(keyedBy:CodingKeys.self)
+  layerOrder=try c.decodeIfPresent(Double.self,forKey:.layerOrder)
   symbol=try c.decodeIfPresent(String.self,forKey:.symbol);textKey=try c.decodeIfPresent(String.self,forKey:.textKey);placeholderKey=try c.decodeIfPresent(String.self,forKey:.placeholderKey);selected=try c.decodeIfPresent(Bool.self,forKey:.selected)
   parent=try c.decodeIfPresent(String.self,forKey:.parent);gradient=try c.decodeIfPresent(StudioGradient.self,forKey:.gradient);shadow=try c.decodeIfPresent(StudioShadow.self,forKey:.shadow)
   contentWidth=try c.decodeIfPresent(CGFloat.self,forKey:.contentWidth);contentHeight=try c.decodeIfPresent(CGFloat.self,forKey:.contentHeight);scrollX=try c.decodeIfPresent(CGFloat.self,forKey:.scrollX);scrollY=try c.decodeIfPresent(CGFloat.self,forKey:.scrollY);clip=try c.decodeIfPresent(Bool.self,forKey:.clip);scale=try c.decodeIfPresent(CGFloat.self,forKey:.scale)

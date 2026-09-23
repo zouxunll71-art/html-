@@ -12,14 +12,14 @@ ATTRS={'id','name','class','style','asset','font','action','bind','when','repeat
 NUM={'width','height','left','top','right','bottom','gap','padding','font-size','font-weight','line-height','letter-spacing','border-radius','border-width','opacity','rotation','scale','columns','row-height','flex-grow'}
 ENUM={'display':{'flex','stack','grid'},'flex-direction':{'row','column'},'align-items':{'start','center','end','stretch'},'align-self':{'start','center','end','stretch'},'position':{'absolute','relative'},'overflow':{'hidden','visible'},'object-fit':{'fit','fill','stretch'},'text-align':{'left','center','right'},'font-family':{'sans','serif','monospace','cursive'}}
 COLORS={'color','background','border-color'}
-ACTION_FIELDS={'set':{'path','value'},'toggle':{'path'},'append':{'path','value'},'remove':{'path','key','value'},'update':{'path','key','id','value'},'if':{'when','then','else'},'push':{'page','params'},'replace':{'page','params'},'tab':{'page','params'},'back':set(),'present':{'page'},'dismiss':set(),'openURL':{'link'},'delay':{'duration','actions'},'persist':{'key','value'},'restore':{'path','key','default'},'reset':set(),'animate':{'duration','delay','curve','actions'}}
+ACTION_FIELDS={'set':{'path','value'},'toggle':{'path'},'append':{'path','value'},'remove':{'path','key','value'},'update':{'path','key','id','value'},'if':{'when','then','else'},'push':{'page','params'},'replace':{'page','params'},'tab':{'page','params'},'back':set(),'present':{'page'},'dismiss':set(),'openURL':{'link'},'delay':{'duration','actions','scope'},'call':{'action'},'persist':{'key','value'},'restore':{'path','key','default'},'reset':set(),'animate':{'duration','delay','curve','actions'}}
 OPS={'eq','not','and','or','add','sub','gt','gte','lt','concat','length','if','trim','split','join','contains','map','filter','find','sum'}
 OPS.update({'mul','div','round','number','min','max','abs','sqrt','atan2','format'})
 ACTION_FIELDS.update({'generateID':{'path'},'forget':{'key'},'share':{'filename','content','mime'}})
 TAGS.update({'ui-path':'path','ui-model':'model'})
 ATTRS.update({'points','profile','angle','elevation','closed'})
-ATTRS.update({'placement','model-asset','paint-options'})
-OPS.add('revolveOBJ')
+ATTRS.update({'placement','model-asset','paint-options','analysis-action','runtime-only'})
+OPS.update({'revolveOBJ','at','mod'})
 def fail(file,message,line=1):raise ValueError(f'{file}:{line}: {message}')
 def load(path):
  def pairs(items):
@@ -118,9 +118,9 @@ class Parser(HTMLParser):
   if tag=='ui-stack':st['display']='stack'
   if tag=='ui-grid':st['display']='grid'
   n=dict(id=id,type=TAGS[tag],style=st,children=[],text='',source={'file':self.path,'line':line})
-  for k in ['name','asset','font','action','bind','key','group','component','placeholder','text-key','placeholder-key','symbol','semantic','placement','model-asset']: 
+  for k in ['name','asset','font','action','bind','key','group','component','placeholder','text-key','placeholder-key','symbol','semantic','placement','model-asset','analysis-action']:
    if k in a:n[k]=a[k]
-  for k in ['when','repeat','disabled','spans','options','styles','gradient','shadow','content','option-keys','text-args','selected','points','profile','angle','elevation','closed','paint-options']:
+  for k in ['when','repeat','disabled','spans','options','styles','gradient','shadow','content','option-keys','text-args','selected','points','profile','angle','elevation','closed','paint-options','runtime-only']:
    if k in a:
     try:n[k]=json.loads(a[k])
     except Exception:fail(self.path,k+' 必须为 JSON 表达式',line)
@@ -269,16 +269,28 @@ def compile_project(root):
    kind=expected.get(n['type'])
    if kind is None or (type(value) not in kind if isinstance(kind,tuple) else type(value) is not kind):fail(n['source']['file'],'Control binding has the wrong type: '+binding,n['source']['line'])
 
+  if n.get('analysis-action') and (n['type']!='model' or n['analysis-action'] not in actions):fail(n['source']['file'],'Invalid model analysis action')
   if n.get('repeat') and not n.get('key'):fail(n['source']['file'],'repeat 必须有 key')
   if n['type']=='image' and not n.get('asset') and not n.get('symbol'):fail(n['source']['file'],'图片缺少 asset')
   if n['type']=='text' and not n.get('text') and 'content' not in n and 'text-key' not in n:fail(n['source']['file'],'文案为空')
-  for k in ['when','repeat','disabled','spans','options','styles','gradient','shadow','content','option-keys','text-args','selected','points','profile','angle','elevation','closed','paint-options']:expression(n.get(k))
+  for k in ['when','repeat','disabled','spans','options','styles','gradient','shadow','content','option-keys','text-args','selected','points','profile','angle','elevation','closed','paint-options','runtime-only']:expression(n.get(k))
   if n['type']=='path' and 'points' not in n:fail(n['source']['file'],'ui-path requires normalized points')
   if n['type']=='model' and 'profile' not in n and 'model-asset' not in n:fail(n['source']['file'],'ui-model requires a radius/height profile')
   for child in n['children']:verify_node(child)
  for p in app.get('pages',[]):
-  if set(p)-{'id','name','role','html','css','dismissOnBackdrop','navigation','onEnter'}:fail('app.json','页面声明存在未知字段')
+  if set(p)-{'id','name','role','html','css','dismissOnBackdrop','navigation','onEnter','presentation'}:fail('app.json','页面声明存在未知字段')
   if p.get('onEnter') and p['onEnter'] not in actions:fail('app.json','Unknown onEnter action '+p['onEnter'])
+  if 'presentation' in p:
+   expression(p['presentation'])
+   if set(p['presentation'])-{'when','rules','fallbacks'}:fail('app.json','Invalid presentation field')
+   for fallback in p['presentation'].get('fallbacks',[]):
+    if set(fallback)-{'id','asset','x','y','width','height','rotation','layerOrder'} or not {'id','asset','x','y','width','height'}<=set(fallback):fail('app.json','Invalid presentation fallback')
+    if fallback['asset'] not in seen:fail('app.json','Missing fallback asset')
+    if any(type(fallback[k]) not in (int,float) for k in ['x','y','width','height']) or min(fallback['width'],fallback['height'])<=0:fail('app.json','Invalid fallback bounds')
+   for rule in p['presentation'].get('rules',[]):
+    if set(rule)-{'match','when','set','badge'}:fail('app.json','Invalid presentation rule')
+    if not rule.get('match') or set(rule['match'])-{'id','asset','action'}:fail('app.json','Invalid presentation match')
+    if set(rule.get('set',{}))-{'offsetX','offsetY','opacity','hidden','disabled','rotation','scale','layerOrder'}:fail('app.json','Invalid presentation property')
   if p['id'] in pages:fail('app.json','页面 ID 重复')
   n=expand(template(p));verify_node(n);pages[p['id']]={**p,'root':n}
  if not pages or app.get('entry') not in pages:fail('app.json','缺少有效入口页')
@@ -287,7 +299,9 @@ def compile_project(root):
   for a in seq:
    if not isinstance(a,dict):fail('actions','每一步必须为对象')
    if a.get('type') not in ACTION_FIELDS or set(a)-ACTION_FIELDS[a['type']]-{'type'}:fail('actions','不支持的动作或参数 '+str(a))
-   required={'delay':{'duration','actions'},'openURL':{'link'},'set':{'path','value'},'toggle':{'path'},'append':{'path','value'},'remove':{'path','key','value'},'update':{'path','key','id','value'},'if':{'when','then'},'push':{'page'},'replace':{'page'},'tab':{'page'},'present':{'page'},'persist':{'key','value'},'restore':{'path','key','default'},'animate':{'duration','actions'}}
+   if a['type']=='call' and a.get('action') not in actions:fail('actions','Unknown called action')
+   if a['type']=='delay' and a.get('scope','page')!='page':fail('actions','Invalid delay scope')
+   required={'delay':{'duration','actions'},'call':{'action'},'openURL':{'link'},'set':{'path','value'},'toggle':{'path'},'append':{'path','value'},'remove':{'path','key','value'},'update':{'path','key','id','value'},'if':{'when','then'},'push':{'page'},'replace':{'page'},'tab':{'page'},'present':{'page'},'persist':{'key','value'},'restore':{'path','key','default'},'animate':{'duration','actions'}}
    if required.get(a['type'],set())-set(a):fail('actions','动作缺少必需字段 '+a['type'])
    if a['type']=='present' and pages.get(a.get('page'),{}).get('role')!='dialog':fail('actions','present 必须引用 dialog 页面')
    if a['type'] in ('push','replace','tab') and pages.get(a.get('page'),{}).get('role')=='dialog':fail('actions','普通路由不能引用 dialog 页面')

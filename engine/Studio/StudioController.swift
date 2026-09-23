@@ -2,7 +2,7 @@ import UIKit
 import WebKit
 import UniformTypeIdentifiers
 import CoreText
-final class StudioController:UIViewController,UITableViewDataSource,UITableViewDelegate,UITableViewDragDelegate,UIDocumentPickerDelegate,UIDropInteractionDelegate,UITextFieldDelegate,UIColorPickerViewControllerDelegate,WKScriptMessageHandler {
+final class StudioController:UIViewController,UITableViewDataSource,UITableViewDelegate,UITableViewDragDelegate,UITableViewDropDelegate,UIDocumentPickerDelegate,UIDropInteractionDelegate,UITextFieldDelegate,UIColorPickerViewControllerDelegate,WKScriptMessageHandler {
  let inspectorTabs=UISegmentedControl(items:["iOS 属性","HTML 资源","iOS 图层"]),sourceBrowser=SourceBrowser(),iosBrowser=SourceBrowser(),thumbnailScene=NativeSceneController()
  let repairSyncButton=UIButton(type:.system),runIOSButton=UIButton(type:.system),closeWebButton=UIButton(type:.system)
  var iosRunJob:String?;var exportJobID:String?
@@ -12,7 +12,7 @@ final class StudioController:UIViewController,UITableViewDataSource,UITableViewD
  var sourceThumbnailWork:DispatchWorkItem?
  let scrollRelay=ScrollRelay()
  let simulatorInput=SimulatorInput(),simulatorTools=UIStackView()
- let web=WKWebView(frame:.zero,configuration:WKWebViewConfiguration());var observedRevision = -1;var liveStatusBusy=false;var activePage="";var linked=true;var running=false;var rawScene:[String:Any]=[:];var syncRevision=0
+ let web=WKWebView(frame:.zero,configuration:WKWebViewConfiguration());var observedRevision = -1;var liveStatusBusy=false;var activePage="";var linked=true;var running=false;var modeChanging=false;var rawScene:[String:Any]=[:];var syncRevision=0
  let editingTools=UIStackView();var toolButtons:[String:UIButton]=[:];let iosFrames=IOSFrames();let androidFrames=IOSFrames();let androidBack=UIButton(type:.system);var lastPreview=Date.distantPast
  let toolbar=UIView(),sidebar=UIView(),inspector=UIScrollView(),workspace=StudioWorkspace(),footer=UILabel()
  let titleLabel=UILabel(),projectButton=UIButton(type:.system),segments=UISegmentedControl(items:["页面","资源","原生组件"]),search=UISearchBar()
@@ -50,7 +50,7 @@ final class StudioController:UIViewController,UITableViewDataSource,UITableViewD
   segments.selectedSegmentIndex=0;segments.addAction(UIAction{[weak self]_ in self?.reloadCatalog()},for:.valueChanged);sidebar.addSubview(segments)
   search.placeholder="搜索页面或原始资源";search.searchBarStyle = .minimal;search.searchTextField.addTarget(self,action:#selector(searchChanged),for:.editingChanged);sidebar.addSubview(search)
   for t in [catalog,layers]{t.dataSource=self;t.delegate=self;t.backgroundColor = .clear;t.separatorStyle = .none;t.rowHeight=42;sidebar.addSubview(t)}
-  layers.rowHeight=64
+  layers.rowHeight=64;layers.dragDelegate=self;layers.dropDelegate=self;layers.dragInteractionEnabled=true
   catalog.dragDelegate=self;catalog.dragInteractionEnabled=true
   let layerTitle=label("图层",13,.semibold);layerTitle.tag=99;sidebar.addSubview(layerTitle)
   let add=button("＋ 空白页",{[weak self] in self?.newPage()});add.tag=98;sidebar.addSubview(add)
@@ -120,7 +120,7 @@ final class StudioController:UIViewController,UITableViewDataSource,UITableViewD
   scrollRelay.cancel();UserDefaults.standard.set(p.id,forKey:"studio.lastProject");pendingSourceFocus=nil
   sourceLoadedFonts.removeAll();sourceNodes=[];sourceFrame=[:];sourceSignature="";sourceThumbnails.removeAll();sourceBrowser.update([],projectID:p.id,signature:"");sourceFrameRevision = -1
   project=p;snapshotBusy=false;pageIndex=0;selected=nil;assetCache.removeAll();libraryThumbs.removeAll();undoStates=[];redoStates=[];source=nil;dirty=false;activePage="";projectButton.setTitle(p.name+" ▾",for:.normal);reloadCatalog();updatePage()
-  Bridge.shared.json("/activate-project",["id":p.id]){[weak self]r in if case .failure(let e)=r{self?.error(e)}else{self?.observedRevision = -1;self?.pollRoute();self?.connectEmbeddedSimulator()}}
+  Bridge.shared.json("/activate-project",["id":p.id]){[weak self]r in guard let self=self,self.project?.id==p.id else{return};if case .failure(let e)=r{self.error(e)}else{if case .success(let data)=r,let status=(try? JSONSerialization.jsonObject(with:data)) as? [String:Any],let editing=status["editing"] as? Bool{self.mode.selectedSegmentIndex=editing ? 0:1;self.toggleRun(sync:false)};self.observedRevision = -1;self.pollRoute();self.connectEmbeddedSimulator()}}
  }
  func loadManifestPage(){
   guard isManifest,let p=project,let page=page else{return}
@@ -148,7 +148,7 @@ final class StudioController:UIViewController,UITableViewDataSource,UITableViewD
  }
  func userContentController(_ userContentController:WKUserContentController,didReceive message:WKScriptMessage){guard let m=message.body as? [String:Any] else{return};if handleNativePreviewMessage(m){return};if m["type"] as? String=="editorTool",let tool=m["tool"] as? String{selectToolShortcut(tool);return};if m["type"] as? String=="toggleMode"{switchRunMode();return};if m["type"] as? String=="select",let id=m["id"] as? String{chooseSource(id)};if m["type"] as? String=="resourceDrop",let id=m["id"] as? String,let x=m["x"] as? Double,let y=m["y"] as? Double{let point=web.convert(CGPoint(x:x,y:y),to:left);if left.screenRect.contains(point){copySource(id,point:left.logical(point),signature:m["signature"] as? String,projectID:m["projectID"] as? String)}};if m["type"] as? String=="rendered",let rev=m["revision"] as? Int,rev != sourceFrameRevision{sourceFrameRevision=rev;if inspectorTabs.selectedSegmentIndex==1{loadSourceLayers()}}}
  func dispatchEvent(_ event:[String:Any],side:String){var body:[String:Any]=["side":side,"event":event,"eventID":UUID().uuidString];if let id=project?.id{body["projectID"]=id};Bridge.shared.json("/event",body){[weak self]r in if case .failure(let e)=r{self?.error(e)}else{self?.pollRoute()}}}
- func toggleRun(){releaseSimulatorTouches();simulatorInput.stop();scrollRelay.cancel();running=mode.selectedSegmentIndex==1;editingTools.isUserInteractionEnabled = !running;editingTools.alpha=running ? 0.45:1;sourcePageButton.isEnabled = !running;rightTitle.text=running ? "HTML 原型 · 运行预览":"HTML 原型 · 点击取资源";left.operate=running;if !running{leftTitle.text="iOS 成品 · 真实模拟器"};leftTools.isHidden=running;simulatorTools.isHidden = !running;iosBrowser.isUserInteractionEnabled = !running;iosBrowser.alpha=running ? 0.45:1;sourceBrowser.isUserInteractionEnabled = !running;sourceBrowser.alpha=running ? 0.45:1;inspector.isUserInteractionEnabled = !running;inspector.alpha=running ? 0.45:1;left.setNeedsLayout();if !running{updatePage()};Bridge.shared.json("/mode",["editing":!running]){[weak self]result in if case .failure(let error)=result{self?.error(error)}else{self?.connectEmbeddedSimulator()}}}
+ func toggleRun(sync:Bool=true){releaseSimulatorTouches();simulatorInput.stop();scrollRelay.cancel();running=mode.selectedSegmentIndex==1;editingTools.isUserInteractionEnabled = !running;editingTools.alpha=running ? 0.45:1;sourcePageButton.isEnabled = !running;rightTitle.text=running ? "HTML 原型 · 运行预览":"HTML 原型 · 点击取资源";left.operate=running;if !running{leftTitle.text="iOS 成品 · 真实模拟器"};leftTools.isHidden=running;simulatorTools.isHidden = !running;iosBrowser.isUserInteractionEnabled = !running;iosBrowser.alpha=running ? 0.45:1;sourceBrowser.isUserInteractionEnabled = !running;sourceBrowser.alpha=running ? 0.45:1;inspector.isUserInteractionEnabled = !running;inspector.alpha=running ? 0.45:1;left.setNeedsLayout();if !running{updatePage()};guard sync else{return};modeChanging=true;Bridge.shared.json("/mode",["editing":!running]){[weak self]result in self?.modeChanging=false;if case .failure(let error)=result{self?.error(error);self?.pollRoute()}else{self?.connectEmbeddedSimulator()}}}
  func newHTMLProject(name:String?=nil){Bridge.shared.json("/new",name.map{["name":$0]} ?? [:]){[weak self]r in if case .success(let d)=r,let p=try? JSONDecoder().decode(StudioProject.self,from:d){self?.useProject(p);self?.loadProjects()}else if case .failure(let e)=r{self?.error(e)}}}
  @objc func showSyncDetails(){
   guard let projectID=project?.id else{return}
@@ -203,7 +203,7 @@ final class StudioController:UIViewController,UITableViewDataSource,UITableViewD
   else if segments.selectedSegmentIndex==2{insert(nativeEntries[i.row].node())}
   else {let asset=assets[i.row];var n=StudioNode();n.asset=asset.id;n.name=asset.name;insert(n)}
  }
- func tableView(_ tableView:UITableView,itemsForBeginning session:UIDragSession,at indexPath:IndexPath)->[UIDragItem]{guard tableView===catalog,segments.selectedSegmentIndex != 0 else{return []};let payload=segments.selectedSegmentIndex==2 ? "native:"+nativeEntries[indexPath.row].type : "asset:"+assets[indexPath.row].id;return [UIDragItem(itemProvider:NSItemProvider(object:payload as NSString))]}
+ func tableView(_ tableView:UITableView,itemsForBeginning session:UIDragSession,at indexPath:IndexPath)->[UIDragItem]{if tableView===layers{return beginLayerDrag(at:indexPath)};guard tableView===catalog,segments.selectedSegmentIndex != 0 else{return []};let payload=segments.selectedSegmentIndex==2 ? "native:"+nativeEntries[indexPath.row].type : "asset:"+assets[indexPath.row].id;return [UIDragItem(itemProvider:NSItemProvider(object:payload as NSString))]}
  func tableView(_ t:UITableView,trailingSwipeActionsConfigurationForRowAt i:IndexPath)->UISwipeActionsConfiguration?{guard t===layers,let p=page else{return nil};let n=Array(p.nodes.reversed())[i.row];return UISwipeActionsConfiguration(actions:[UIContextualAction(style:.destructive,title:"删除"){[weak self]_,_,done in self?.selected=n.id;self?.deleteSelected();done(true)}])}
  func updateHistoryButtons(){guard buttons.count>3 else{return};buttons[2].isEnabled = !undoStates.isEmpty;buttons[3].isEnabled = !redoStates.isEmpty}
  func checkpoint(){if let p=project,let d=try? JSONEncoder().encode(p){undoStates.append(d);if undoStates.count>80{undoStates.removeFirst()};redoStates=[]}}
@@ -311,6 +311,7 @@ final class StudioController:UIViewController,UITableViewDataSource,UITableViewD
    var fetching=false;defer{if !fetching{self.liveStatusBusy=false}}
    guard case .success(let d)=r,let status=try? JSONSerialization.jsonObject(with:d) as? [String:Any],let rev=status["revision"] as? Int else{return}
    if status["active"] is NSNull,let p=self.project {Bridge.shared.json("/activate-project",["id":p.id]){[weak self]r in if case .failure(let e)=r{self?.error(e)}else{self?.observedRevision = -1}};return}
+   if !self.modeChanging,status["active"] as? String==self.project?.id,let editing=status["editing"] as? Bool,self.running==editing{self.mode.selectedSegmentIndex=editing ? 0:1;self.toggleRun(sync:false);if !editing{self.connectEmbeddedSimulator()}}
    let problem=status["error"] as? String ?? "",conflicts=status["conflicts"] as? [[String:Any]] ?? [],acks=status["ack"] as? [String:Int] ?? [:]
    self.linked=status["linked"] as? Bool ?? true;self.copyButton.setTitle(self.linked ? "两端联动" : "独立操作",for:.normal)
    if !problem.isEmpty{self.showSyncStatus("同步失败 · 保留上一版 · "+problem)}else if !conflicts.isEmpty{self.showSyncStatus("\(conflicts.count) 项两端修改差异 · 导出保留 iOS；点击查看冲突详情")}else if !self.iosFrames.isFresh{self.showSyncStatus("同步失败 · 工作台画面连接中断，正在重连")}else{self.showSyncStatus(acks["ios"]==rev && acks["web"]==rev ? "已同步 · HTML 与原生 iOS 内容一致" : "同步中 · 正在更新两端")}
@@ -434,6 +435,6 @@ final class StudioController:UIViewController,UITableViewDataSource,UITableViewD
  }
  func friendlyOption(_ value:String)->String{["fit":"完整显示","fill":"填满并裁切","stretch":"拉伸铺满","left":"靠左","center":"居中","right":"靠右","topLeft":"左上角","bottomLeft":"左下角"][value] ?? value}
  func menuButton(_ title:String,_ options:[String],action:@escaping(String)->Void)->UIButton{let b=button(title,{});b.showsMenuAsPrimaryAction=true;b.menu=UIMenu(children:options.map{v in UIAction(title:friendlyOption(v)){_ in action(v)}});return b}
- func reorder(_ delta:Int){guard let i=project?.pages[pageIndex].nodes.firstIndex(where:{$0.id==selected})else{return};let j=i+delta;guard project!.pages[pageIndex].nodes.indices.contains(j)else{return};checkpoint();project!.pages[pageIndex].nodes.swapAt(i,j);changed()}
+ func reorder(_ delta:Int){guard let i=project?.pages[pageIndex].nodes.firstIndex(where:{$0.id==selected})else{return};let j=i+delta;guard project!.pages[pageIndex].nodes.indices.contains(j)else{return};checkpoint();project!.pages[pageIndex].nodes.swapAt(i,j);stampLayerOrder();changed()}
  func chooseAssetForSelected(){guard let p=project else{return};let alert=UIAlertController(title:"替换原始图片",message:nil,preferredStyle:.actionSheet);for a in p.assets where a.kind=="image"{alert.addAction(UIAlertAction(title:a.name,style:.default){[weak self]_ in self?.mutate{$0.asset=a.id;$0.name=a.name}})};alert.addAction(UIAlertAction(title:"取消",style:.cancel));alert.popoverPresentationController?.sourceView=inspector;present(alert,animated:true)}
 }

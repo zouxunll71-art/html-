@@ -15,7 +15,7 @@ function expr(v,c){if(Array.isArray(v))return v.map(x=>expr(x,c));if(!v||typeof 
   switch(v.op){case 'mul':result=ns.reduce((x,y)=>x*y,1);break;case 'div':if(ns[1]===0)throw Error('Division by zero');result=ns[0]/ns[1];break;case 'number':result=ns[0];break;case 'min':result=Math.min(...ns);break;case 'max':result=Math.max(...ns);break;case 'abs':result=Math.abs(ns[0]);break;case 'sqrt':result=Math.sqrt(ns[0]);break;case 'atan2':result=Math.atan2(ns[0],ns[1])*180/Math.PI;break;case 'round':case 'format':{const places=ns[1]??0;if(!Number.isInteger(places)||places<0||places>10)throw Error('Decimal places must be 0-10');result=v.op==='format'?ns[0].toFixed(places):Number(ns[0].toFixed(places));break;}}
   if(typeof result==='number'&&!Number.isFinite(result))throw Error('Non-finite numeric result');return result;
  }
- switch(v.op){case 'sum':if(!Array.isArray(a[0]))throw Error('sum needs array');if(a[0].some(x=>typeof x!=='number'||!Number.isFinite(x)))throw Error('sum needs finite numbers');return a[0].reduce((sum,x)=>sum+x,0);case 'trim':return String(a[0]??'').trim();case 'split':return String(a[0]??'').split(String(a[1]??'\n'));case 'join':if(!Array.isArray(a[0]))throw Error('join needs array');return a[0].join(String(a[1]??''));case 'contains':return String(a[0]??'').toLocaleLowerCase().includes(String(a[1]??'').toLocaleLowerCase());case 'eq':return a[0]===a[1];case 'not':return !a[0];case 'and':return a.every(Boolean);case 'or':return a.some(Boolean);case 'add':return a.reduce((x,y)=>x+Number(y),0);case 'sub':return a[0]-a[1];case 'gt':return a[0]>a[1];case 'gte':return a[0]>=a[1];case 'lt':return a[0]<a[1];case 'concat':return a.join('');case 'length':return a[0]?.length||0;case 'if':return a[0]?a[1]:a[2];default:throw Error('Unknown expression '+v.op)}}
+ switch(v.op){case 'at':if(!Array.isArray(a[0])||!Number.isInteger(a[1]))throw Error('at needs array and integer');return a[0][a[1]]??null;case 'mod':return a[0]%a[1];case 'sum':if(!Array.isArray(a[0]))throw Error('sum needs array');if(a[0].some(x=>typeof x!=='number'||!Number.isFinite(x)))throw Error('sum needs finite numbers');return a[0].reduce((sum,x)=>sum+x,0);case 'trim':return String(a[0]??'').trim();case 'split':return String(a[0]??'').split(String(a[1]??'\n'));case 'join':if(!Array.isArray(a[0]))throw Error('join needs array');return a[0].join(String(a[1]??''));case 'contains':return String(a[0]??'').toLocaleLowerCase().includes(String(a[1]??'').toLocaleLowerCase());case 'eq':return a[0]===a[1];case 'not':return !a[0];case 'and':return a.every(Boolean);case 'or':return a.some(Boolean);case 'add':return a.reduce((x,y)=>x+Number(y),0);case 'sub':return a[0]-a[1];case 'gt':return a[0]>a[1];case 'gte':return a[0]>=a[1];case 'lt':return a[0]<a[1];case 'concat':return a.join('');case 'length':return a[0]?.length||0;case 'if':return a[0]?a[1]:a[2];default:throw Error('Unknown expression '+v.op)}}
  return Object.fromEntries(Object.entries(v).map(([k,x])=>[k,expr(x,c)]));}
 function validatePoints(points){
  if(!Array.isArray(points)||points.length<2||points.length>256||points.some(p=>!Array.isArray(p)||p.length!==2||p.some(v=>typeof v!=='number'||!Number.isFinite(v))))throw Error('Points require 2-256 finite XY pairs');
@@ -52,9 +52,11 @@ function modalPages(model,session){
  }
  return result.reverse();
 }
-function reduce(model,session,event){if(event.requiresValue&&(typeof event.value!=='string'||!event.value.trim()))throw Error('Model save requires a completed work identifier');const s=clone(session);s.modals=modalPages(model,s);if(event.disabled)return s;s.animation=null;s.effects=s.effects||[];const ctx=()=>({...context(s,event.item,event),localization:model.localization,locale:s.locale||'en'});let budget=256;
+function reduce(model,session,event){if(event.requiresAnalysis){const v=event.value;if(!v||v.version!==1||!Array.isArray(v.regions)||v.regions.length!==12||v.regions.some(r=>!Number.isFinite(r.coverage)||r.coverage<0||r.coverage>1||!Number.isFinite(r.saturation)||r.saturation<0||r.saturation>1))throw Error('Invalid model analysis');}if(event.requiresValue&&(typeof event.value!=='string'||!event.value.trim()))throw Error('Model save requires a completed work identifier');const s=clone(session);s.modals=modalPages(model,s);if(event.disabled)return s;s.animation=null;s.effects=s.effects||[];const ctx=()=>({...context(s,event.item,event),localization:model.localization,locale:s.locale||'en'});let budget=256;
+ if(['navigate','tab','back','popTo'].includes(event.type))s.routeEpoch=(s.routeEpoch||0)+1;
  function run(steps){for(const a of steps||[]){if(--budget<0)throw Error('Action sequence exceeds 256 steps');const val=()=>expr(a.value,ctx());switch(a.type){
- case 'delay':{const id=String(s.tick+1)+':'+s.effects.length;const effect={type:'delay',duration:a.duration,id};s.pendingEffects=s.pendingEffects||{};s.pendingEffects[id]={...effect,actions:clone(a.actions),item:clone(event.item||{}),sourceParams:clone(ctx().params)};s.effects.push(effect);break}
+ case 'call':run(model.actions[a.action]);break;
+ case 'delay':{const id=String(s.tick+1)+':'+s.effects.length;const effect={type:'delay',duration:a.duration,id};s.pendingEffects=s.pendingEffects||{};s.pendingEffects[id]={...effect,actions:clone(a.actions),scope:a.scope,routeEpoch:s.routeEpoch||0,item:clone(event.item||{}),sourceParams:clone(ctx().params)};s.effects.push(effect);break}
  case 'openURL':{const url=model.links?.[a.link];if(!url)throw Error('Unknown link '+a.link);s.effects.push({type:'openURL',url,id:String(s.tick+1)+':'+s.effects.length});break}
  case 'set':set(s.state,a.path,val());break;
  case 'generateID':{const uuid=typeof global.crypto?.randomUUID==='function'?global.crypto.randomUUID():'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,k=>{const r=Math.floor(Math.random()*16);return (k==='x'?r:(r&3)|8).toString(16)});set(s.state,a.path,uuid);break;}
@@ -65,7 +67,7 @@ function reduce(model,session,event){if(event.requiresValue&&(typeof event.value
  case 'remove':{const list=get(s.state,a.path);set(s.state,a.path,list.filter(x=>get(x,a.key)!==val()));break}
  case 'update':{const list=get(s.state,a.path);const id=expr(a.id,ctx());list.forEach(x=>{if(get(x,a.key)===id)Object.assign(x,val())});break}
  case 'if':run(expr(a.when,ctx())?a.then:a.else);break;
- case 'push':case 'replace':case 'tab':{if(!model.pages[a.page]||model.pages[a.page].role==='dialog')throw Error('Unknown navigation page');const p={page:a.page,params:expr(a.params||{},ctx())};if(a.type==='tab')s.stack=[p];else if(a.type==='replace')s.stack[s.stack.length-1]=p;else s.stack.push(p);s.modals=[];if(model.pages[a.page].onEnter){const previous=event;event={...event,sourceParams:p.params};run(model.actions[model.pages[a.page].onEnter]);event=previous}break}
+ case 'push':case 'replace':case 'tab':{s.routeEpoch=(s.routeEpoch||0)+1;if(!model.pages[a.page]||model.pages[a.page].role==='dialog')throw Error('Unknown navigation page');const p={page:a.page,params:expr(a.params||{},ctx())};if(a.type==='tab')s.stack=[p];else if(a.type==='replace')s.stack[s.stack.length-1]=p;else s.stack.push(p);s.modals=[];if(model.pages[a.page].onEnter){const previous=event;event={...event,sourceParams:p.params};run(model.actions[model.pages[a.page].onEnter]);event=previous}break}
  case 'back':if(s.modals.length)s.modals.pop();else if(s.stack.length>1)s.stack.pop();break;
  case 'present':if(!model.pages[a.page]||model.pages[a.page].role!=='dialog')throw Error('Unknown dialog');if(s.modals.includes(a.page)||s.stack[s.stack.length-1].page===a.page)break;s.modals.push(a.page);if(model.pages[a.page].onEnter)run(model.actions[model.pages[a.page].onEnter]);break;
  case 'dismiss':s.modals.pop();break;
@@ -75,12 +77,12 @@ function reduce(model,session,event){if(event.requiresValue&&(typeof event.value
  case 'animate':s.animation=clone(a);run(a.actions);break;
  default:throw Error('Unknown action '+a.type)
  }}}
- if(event.type==='effectComplete'){const pending=s.pendingEffects?.[event.id];if(!pending)return s;delete s.pendingEffects[event.id];s.effects=s.effects.filter(e=>e.id!==event.id);event={...event,item:pending.item||{},sourceParams:pending.sourceParams||{}};run(pending.actions)}
+ if(event.type==='effectComplete'){const pending=s.pendingEffects?.[event.id];if(!pending)return s;delete s.pendingEffects[event.id];s.effects=s.effects.filter(e=>e.id!==event.id);event={...event,item:pending.item||{},sourceParams:pending.sourceParams||{}};if(pending.scope!=='page'||(pending.routeEpoch===(s.routeEpoch||0)&&!s.editingPage))run(pending.actions)}
  else if(event.type==='locale'){if(!['en','zh-Hans'].includes(event.locale))throw Error('Unsupported locale');s.locale=event.locale}
  else if(event.type==='chromeInsets'){for(const key of ['top','bottom'])if(!Number.isFinite(event[key])||event[key]<0||event[key]>250)throw Error('Invalid safe area');s.chromeInsets={top:event.top,bottom:event.bottom};if(event.height!=null){if(!Number.isFinite(event.height)||event.height<240||event.height>4096)throw Error('Invalid viewport height');s.viewportHeight=event.height}}
  else if(event.type==='tab')run([{type:'tab',page:event.page}]);
  else if(event.type==='popTo'){if(!Number.isInteger(event.depth)||event.depth<1||event.depth>s.stack.length)throw Error('Invalid navigation depth');s.stack=s.stack.slice(0,event.depth);s.modals=[]}
- else if(event.type==='navigate'){if(!model.pages[event.page])throw Error('Unknown page');s.stack=[{page:event.page,params:{}}];s.modals=[];delete s.editingPage;if(event.preview===true){s.editingPage=event.page;s.pendingEffects={};s.effects=[]}else if(model.pages[event.page].onEnter)run(model.actions[model.pages[event.page].onEnter])}
+ else if(event.type==='navigate'){if(!model.pages[event.page])throw Error('Unknown page');s.stack=[{page:event.page,params:{}}];s.modals=[];delete s.editingPage;delete s.presentationPaused;if(event.preview===true){s.editingPage=event.page;s.pendingEffects={};s.effects=[]}else if(model.pages[event.page].onEnter)run(model.actions[model.pages[event.page].onEnter])}
  else if(event.type==='scroll')s.scroll[event.node]={x:event.x||0,y:event.y||0};
  else if(event.type==='back')run([{type:'back'}]);
  else {if(event.bind)set(s.state,event.bind,event.value);if(event.action){if(!model.actions[event.action])throw Error('Unknown action '+event.action);run(model.actions[event.action])}}
@@ -90,9 +92,9 @@ function style(raw,c){const st={...(raw.style||{}),...expr(raw.styles||{},c)};fo
  if(numeric.includes(k)&&!(['width','height'].includes(k)&&['fill','auto'].includes(v))&&(typeof v!=='number'||!Number.isFinite(v)))throw Error('Invalid dynamic style '+raw.id+'.'+k);
  if(['color','background','border-color'].includes(k)&&!/^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/.test(v))throw Error('Invalid color '+raw.id+'.'+k);
  }return st;}
-function frame(model,session,overrides){const nodes=[],nodeIDs=new Set(),events={},layout={...model.viewport,height:session.viewportHeight||model.viewport.height},ctx={...context(session),localization:model.localization,locale:session.locale||'en'},assets=Object.fromEntries(model.assets.map(a=>[a.name,a]));
+function rawFrame(model,session,overrides){const nodes=[],nodeIDs=new Set(),events={},layout={...model.viewport,height:session.viewportHeight||model.viewport.height},ctx={...context(session),localization:model.localization,locale:session.locale||'en'},assets=Object.fromEntries(model.assets.map(a=>[a.name,a]));
  function num(v,available,fallback){if(v==null||v==='auto')return fallback;if(v==='fill')return available;return Number(v)}
- function expanded(children,c,prefix){let out=[];for(const raw of children||[]){if(raw.when&&!expr(raw.when,c))continue;
+ function expanded(children,c,prefix){let out=[];for(const raw of children||[]){if(raw['runtime-only']&&session.editingPage)continue;if(raw.when&&!expr(raw.when,c))continue;
  if(raw.repeat){const rows=expr(raw.repeat,c);if(!Array.isArray(rows))throw Error('repeat must be array: '+raw.id);const keys=new Set();for(const item of rows){const key=get(item,raw.key);if(key==null||keys.has(String(key)))throw Error('Missing/duplicate repeat key: '+raw.id);keys.add(String(key));out.push({raw,c:{...c,item},id:prefix+raw.id+'['+key+']'})}}
  else out.push({raw,c,id:prefix+raw.id});}return out;}
  function render(raw,c,id,box,parent,z){const st=style(raw,c),patch=overrides?.[id]||{},typ=raw.type;
@@ -105,7 +107,7 @@ function frame(model,session,overrides){const nodes=[],nodeIDs=new Set(),events=
  Object.assign(n,patch);if(n.hidden)return;if(nodeIDs.has(n.id))throw Error('Duplicate rendered layer ID: '+n.id);nodeIDs.add(n.id);nodes.push(n);
  events[id]={action:raw.action||'',bind:raw.bind||'',...(raw['model-asset']?{requiresValue:true}:{}),item:c.item||{},sourceParams:c.params||{},disabled:n.disabled};
  if(typ==='path'){n.points=expr(raw.points,c);n.closed=!!expr(raw.closed,c);validatePoints(n.points);return;}
- if(typ==='model'&&raw['model-asset']){const a=assets[text(raw['model-asset'],c)];if(!a||a.kind!=='model')throw Error('Missing GLB resource');n.modelAsset=a.id;n.paintOptions=expr(raw['paint-options']||{},c);n.type='image';return;}
+ if(typ==='model'&&raw['model-asset']){const a=assets[text(raw['model-asset'],c)];if(!a||a.kind!=='model')throw Error('Missing GLB resource');n.modelAsset=a.id;n.paintOptions=expr(raw['paint-options']||{},c);if(raw['analysis-action'])events[id+'#analysis']={action:raw['analysis-action'],requiresAnalysis:true,item:c.item||{},sourceParams:c.params||{}};n.type='image';return;}
  if(typ==='model'){n.mesh=projectRevolve(expr(raw.profile,c),Number(expr(raw.angle||0,c)),Number(expr(raw.elevation||15,c)),n.color);return;}
  if(typ==='text'||typ==='image'||typ.startsWith('native'))return;
  const kids=expanded((raw.children||[]).filter(child=>child.placement!=='viewport-background'),c,id+'/'),pad=st.padding||0,gap=st.gap||0,inner={x:pad,y:pad,w:Math.max(0,n.width-2*pad),h:Math.max(0,n.height-2*pad)};
@@ -130,11 +132,12 @@ function frame(model,session,overrides){const nodes=[],nodeIDs=new Set(),events=
  const modals=modalPages(model,session);
  modals.forEach((id,i)=>{const p=model.pages[id];const backdrop={id:'modalShade'+i,type:'shape',name:'Modal backdrop',style:{background:'#00000066'},action:p.dismissOnBackdrop?'$dismiss':''};render(backdrop,ctx,'$shade'+i,{x:0,y:0,w:layout.width,h:layout.height},'',0);render(p.root,ctx,id,{x:0,y:0,w:layout.width,h:layout.height},'',0)});
  return {id:rootPage,name:p.name,route:rootPage,routeParams:clone(ctx.params),width:layout.width,height:layout.height,background:'#FFFFFF',nodes,events,nativeChrome,contentInsets:insets,modalPages:modals,locale:ctx.locale,effects:session.effects||[],animation:session.animation,animationID:model.hash+':'+session.tick};}
-function editorFrame(page){const copy=clone(page),map={};for(const n of copy.nodes){map[n.id]=n;const p=map[n.parent];if(p){n.x+=p.x-(p.type==='scroll'?p.scrollX||0:0);n.y+=p.y-(p.type==='scroll'?p.scrollY||0:0)} }return copy}
-function applyEditor(page,edit){const base=editorFrame(page),map=Object.fromEntries(base.nodes.map(n=>[n.id,n])),out={};for(const n of edit.nodes){const old=map[n.id];if(!old){out[n.id]=n;continue}const d={};for(const k of Object.keys(n)){if(['id','parent','source','sharedKey','textKey','placeholderKey','symbol','selected'].includes(k))continue;if(JSON.stringify(n[k])!==JSON.stringify(old[k]))d[k]=n[k]}if(Object.keys(d).length)out[n.id]=d;}for(const n of base.nodes)if(!edit.nodes.some(e=>e.id===n.id))out[n.id]={hidden:true};return out}
+function normalizeLayerOrder(nodes){for(let i=0;i<nodes.length;i++)if(!Number.isFinite(nodes[i].layerOrder))nodes[i].layerOrder=i;return nodes}
+function editorFrame(page){const copy=clone(page),map={};normalizeLayerOrder(copy.nodes);for(const n of copy.nodes){map[n.id]=n;const p=map[n.parent];if(p){n.x+=p.x-(p.type==='scroll'?p.scrollX||0:0);n.y+=p.y-(p.type==='scroll'?p.scrollY||0:0)} }copy.nodes=copy.nodes.map((n,i)=>({n,i})).sort((a,b)=>(a.n.layerOrder??a.i)-(b.n.layerOrder??b.i)).map(v=>v.n);return copy}
+function applyEditor(page,edit){const base=editorFrame(page),map=Object.fromEntries(base.nodes.map(n=>[n.id,n])),out={};for(const n of edit.nodes){const old=map[n.id];if(!old){out[n.id]=n;continue}const d={};for(const k of Object.keys(n)){if(['id','source','sharedKey','textKey','placeholderKey','symbol','selected'].includes(k))continue;if(JSON.stringify(n[k])!==JSON.stringify(old[k]))d[k]=n[k]}if(Object.keys(d).length)out[n.id]=d;}for(const n of base.nodes)if(!edit.nodes.some(e=>e.id===n.id))out[n.id]={hidden:true};return out}
 // Apply iOS visual edits while retaining source actions, localized copy and live control state.
 function compose(model,session,overrides={},additions={}){
- const page=frame(model,session),sourcePages={[page.id]:page};
+ const page=rawFrame(model,session),sourcePages={[page.id]:page};
  for(const n of page.nodes){const patch={...(overrides[n.sharedKey||n.id]?.patch||{})};delete patch.scrollX;delete patch.scrollY;Object.assign(n,patch)}
  const extra=clone(additions[page.id]||[]);
  const ids=new Set(page.nodes.map(n=>n.id));for(const n of extra){if(!n.id||ids.has(n.id))throw Error('Duplicate or missing added layer ID: '+n.id);ids.add(n.id)}
@@ -152,9 +155,39 @@ function compose(model,session,overrides={},additions={}){
    }else n.hidden=true;
   }else if(n.interaction)page.events[n.id]=clone(n.interaction);
  }
- page.nodes.push(...extra);return page;
+ normalizeLayerOrder(page.nodes);
+ let nextOrder=page.nodes.reduce((max,n)=>Math.max(max,n.layerOrder),-1)+1;
+ for(const n of extra){if(!Number.isFinite(n.layerOrder))n.layerOrder=nextOrder;nextOrder=Math.max(nextOrder,n.layerOrder+1)}
+ page.nodes.push(...extra);
+ // Parent-first emission keeps native containers and editor coordinate conversion valid after a layer move.
+ const byID=new Map(page.nodes.map(n=>[n.id,n])),ordered=[],done=new Set(),visiting=new Set();
+ function emit(n){if(done.has(n.id))return;if(visiting.has(n.id))throw Error('Layer parent cycle');visiting.add(n.id);const parent=byID.get(n.parent);if(parent)emit(parent);visiting.delete(n.id);done.add(n.id);ordered.push(n)}
+ for(const n of page.nodes)emit(n);page.nodes=ordered;return presentLayers(model,session,page);
 }
+
+function presentLayers(model,session,page){
+ const spec=model.pages[page.id]?.presentation;if(!spec||session.editingPage)return page;
+ const c={...context(session),localization:model.localization,locale:session.locale||'en'};
+ if(spec.when&&!expr(spec.when,c))return page;
+ const assets=Object.fromEntries(model.assets.map(a=>[a.name,a.id]));
+ for(const fallback of spec.fallbacks||[]){if(page.nodes.some(n=>n.id===fallback.id))continue;page.nodes.push({type:'image',parent:'',rotation:0,opacity:1,scale:1,hidden:false,locked:false,fit:'fit',fill:'#00000000',...fallback,asset:assets[fallback.asset]});}
+ for(const rule of spec.rules||[]){
+  if(rule.when&&!expr(rule.when,c))continue;
+  const m=rule.match||{},targets=page.nodes.filter(n=>(!m.id||n.id===m.id)&&(!m.action||n.action===m.action)&&(!m.asset||n.asset===assets[m.asset]));
+  for(const n of targets){const v=expr(rule.set||{},c);n.x+=v.offsetX||0;n.y+=v.offsetY||0;
+   for(const k of ['opacity','hidden','disabled','rotation','scale','layerOrder'])if(k in v)n[k]=v[k];
+   if(n.hidden||n.disabled||n.opacity===0){if(page.events[n.id])page.events[n.id].disabled=true;}
+   if(rule.badge){const b=expr(rule.badge,c),w=n.width*(b.width??.65),h=n.height*(b.height??.2),dx=n.width*((b.x??.5)-.5),dy=n.height*((b.y??.25)-.5),a=(n.rotation||0)*Math.PI/180;
+    page.nodes.push({...n,id:n.id+'#badge',type:'text',asset:undefined,modelAsset:undefined,paintOptions:undefined,action:'',text:String(b.text??''),x:n.x+n.width/2+dx*Math.cos(a)-dy*Math.sin(a)-w/2,y:n.y+n.height/2+dx*Math.sin(a)+dy*Math.cos(a)-h/2,width:w,height:h,scale:1,fill:'#00000000',fontSize:b.fontSize??Math.min(48,n.width*.24),fontWeight:800,color:b.color||'#082DB5',alignment:'center',fontName:undefined,lineHeight:undefined,layerOrder:(n.layerOrder||0)+.1,shadow:b.shadow||null,gradient:null});
+   }
+  }
+ }
+ return page;
+}
+function frame(model,session,overrides){return presentLayers(model,session,rawFrame(model,session,overrides))}
+
 function clipsContent(n){return n.clip===true||n.type==='image'||(n.type==='scroll'&&((n.contentWidth??n.width)>n.width+0.5||(n.contentHeight??n.height)>n.height+0.5))}
-const API={clipsContent,initial,reduce,frame,compose,editorFrame,applyEditor,expr,clone};global.StudioEngine=API;
+function acceptsPointer(n,event,editing=false){return !n.hidden&&(editing||!!n.modelAsset||!!event?.action||String(n.id).startsWith('$shade')||['scroll','nativeButton','nativeCheckbox','nativeSwitch','nativeSlider','nativeSegment','nativeStepper','nativeTextField','nativeTextView'].includes(n.type))}
+const API={normalizeLayerOrder,acceptsPointer,clipsContent,initial,reduce,frame,compose,editorFrame,applyEditor,expr,clone};global.StudioEngine=API;
 if(typeof module!=='undefined')module.exports=API;
 })(typeof globalThis!=='undefined'?globalThis:this);

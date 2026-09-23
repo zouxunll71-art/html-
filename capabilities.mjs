@@ -16,8 +16,8 @@ export class Capabilities {
     })().finally(()=>this.pending.delete(cwd));this.pending.set(cwd,task);return task;
   }
   async inputs(cwd,selected){
-    const catalog=await this.read(cwd,!!selected?.length);
     if(!selected?.length)return [];
+    const catalog=await this.read(cwd,true);
     return [...new Set(selected)].map(path=>{const skill=catalog.skills.find(s=>s.path===path&&s.enabled);if(!skill)throw new Error('所选技能已停用或不存在，请重新选择');return {type:'skill',name:skill.name,path:skill.path};});
   }
 }

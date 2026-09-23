@@ -6,7 +6,7 @@ import SceneKit
 final class NativeModelView: UIView {
  typealias Store = (String,[String:Any]?,@escaping(Result<[String:Any]?,Error>)->Void)->Void
  var loadAsset:((String,@escaping(Result<Data,Error>)->Void)->Void)?
- var store:Store?;var onSave:((String)->Void)?
+ var store:Store?;var onSave:((String)->Void)?;var onAnalysis:(([String:Any])->Void)?
  let renderer=SCNView();let message=UILabel();let world=SCNScene();let camera=SCNNode()
  var object:SCNNode?;var gpu:NativePaintGPU?;var options:[String:Any]=[:];var identity="";var key="";var project="";var asset="";var sequence:Int?;var ready=false;var busy=false;var generation=0
  var undo=[Data](),redo=[Data]();var previous:CGPoint?;var dirty=false;var saveQueue=[(String,[String:Any],((Bool)->Void)?)]();var writing=false
@@ -58,12 +58,42 @@ final class NativeModelView: UIView {
  func enqueue(_ key:String,_ value:[String:Any],_ completion:((Bool)->Void)?){saveQueue.append((key,value,completion));pump()}
  func pump(){guard !writing,!saveQueue.isEmpty,let store=store else{return};writing=true;let entry=saveQueue.removeFirst();store(entry.0,entry.1){[weak self] result in guard let self=self else{return};self.writing=false;switch result{case .success:entry.2?(true);case .failure(let error):self.dirty=true;self.status("Save failed: \(error.localizedDescription)");entry.2?(false)};self.pump()}}
  func run(_ command:String){guard !busy else{return};switch command {
+  case "analyze":if let result=analyzePainting(){onAnalysis?(result)}else{status("Model analysis unavailable")}
   case "undo":if let last=undo.popLast(){redo.append(snapshot());restore(last);persist()}
   case "redo":if let last=redo.popLast(){undo.append(snapshot());restore(last);persist()}
   case "clear":checkpoint();clear();dirty=true;refresh();persist()
   case "save":guard let value=record() else{status("Save failed");return};busy=true;status("Saving…");let id=UUID().uuidString.lowercased(),ticket=generation;enqueue(project+":"+id,value){[weak self] ok in guard let self=self,self.generation==ticket else{return};self.busy=false;if ok{self.persist();self.status("");self.onSave?(id)}}
   default:break
  }}
+ func analyzePainting()->[String:Any]? {
+  guard ready,let gpu=gpu,let root=object else{return nil};let bytes=[UInt8](snapshot());guard bytes.count==1024*1024*4 else{return nil}
+  var total=Array(repeating:Double(0),count:12),painted=total,saturated=total
+  let box=root.boundingBox,center=SIMD3<Float>((box.min.x+box.max.x)/2,0,(box.min.z+box.max.z)/2)
+  for mesh in gpu.meshes {
+   let v=mesh.vertices.contents().bindMemory(to:NativePaintGPU.Vertex.self,capacity:mesh.vertices.length/MemoryLayout<NativePaintGPU.Vertex>.stride)
+   let indices=mesh.indices.contents().bindMemory(to:UInt32.self,capacity:mesh.count)
+   for i in stride(from:0,to:mesh.count-2,by:3){
+    let a=v[Int(indices[i])],b=v[Int(indices[i+1])],c=v[Int(indices[i+2])]
+    func point(_ p:SIMD4<Float>)->SIMD3<Float>{mesh.node.simdConvertPosition(SIMD3(p.x,p.y,p.z),to:root)}
+    let p=point(a.position),q=point(b.position),r=point(c.position),area=Double(simd_length(simd_cross(q-p,r-p)))/2
+    guard area.isFinite,area>0 else{continue};let middle=(p+q+r)/3-center
+    let angle=atan2(Double(middle.z),Double(middle.x))+Double.pi
+    let region=min(11,max(0,Int(angle/(2*Double.pi)*12)))
+    // Four barycentric UV samples per triangle. Unused atlas pixels never contribute.
+    let samples:[SIMD3<Float>]=[SIMD3(1/3,1/3,1/3),SIMD3(0.6,0.2,0.2),SIMD3(0.2,0.6,0.2),SIMD3(0.2,0.2,0.6)]
+    for weights in samples {
+     let uv=a.uv*weights.x+b.uv*weights.y+c.uv*weights.z
+     let x=min(1023,max(0,Int(uv.x*1024))),y=min(1023,max(0,Int(uv.y*1024))),offset=(y*1024+x)*4
+     let low=Double(min(bytes[offset],bytes[offset+1],bytes[offset+2])),high=Double(max(bytes[offset],bytes[offset+1],bytes[offset+2])),weight=area/4
+     total[region]+=weight;if low<245{painted[region]+=weight;saturated[region]+=weight*(high>0 ? (high-low)/high : 0)}
+    }
+   }
+  }
+  guard total.reduce(0,+)>0 else{return nil}
+  let regions=(0..<12).map{i->[String:Any] in ["coverage":total[i]>0 ? min(1,painted[i]/total[i]):0,"saturation":painted[i]>0 ? min(1,saturated[i]/painted[i]):0]}
+  return ["version":1,"regions":regions,"model":asset,"work":options["work"] as? String ?? "","seq":sequence ?? 0]
+ }
+
  @objc func pinch(_ gesture:UIPinchGestureRecognizer){guard ready,!busy else{return};let p=camera.position;let length=sqrt(p.x*p.x+p.y*p.y+p.z*p.z);let next=max(1.7,min(8,length/Float(gesture.scale)));camera.position=SCNVector3(p.x*next/length,p.y*next/length,p.z*next/length);gesture.scale=1;renderer.setNeedsDisplay()}
  @objc func tap(_ gesture:UITapGestureRecognizer){guard ready,!busy,mode != 1 else{return};checkpoint();stamp(gesture.location(in:renderer));refresh();persist()}
  @objc func pan(_ gesture:UIPanGestureRecognizer){guard ready,!busy else{return};let point=gesture.location(in:renderer)

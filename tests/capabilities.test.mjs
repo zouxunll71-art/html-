@@ -7,3 +7,7 @@ test('同步技能和插件只读取共享目录，不创建模型请求',async(
  const selected=await service.inputs('/project',['/shared/imagegen/SKILL.md','/shared/imagegen/SKILL.md']);assert.deepEqual(selected,[{type:'skill',name:'imagegen',path:'/shared/imagegen/SKILL.md'}]);assert.ok(!calls.some(m=>/turn\/|thread\/start/.test(m)));
  await assert.rejects(service.inputs('/project',['/arbitrary/secret']),/停用或不存在/);
 });
+test('普通发送没有选中技能时不查询插件或技能目录',async()=>{
+ const c=new Capabilities({start:()=>assert.fail('no startup'),call:()=>assert.fail('no RPC')});
+ assert.deepEqual(await c.inputs('/project',[]),[]);
+});

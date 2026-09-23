@@ -16,13 +16,15 @@ def compare_frames(before, after, overrides=None, editor=False):
     for node in after['nodes']:
         if node['id'] in index:problems.append((node['id'],'图层 ID 重复',node.get('source',{})))
         index[node['id']]=node
-    for node in before['nodes']:
+    for node_index,node in enumerate(before['nodes']):
         nid=node['id'];source=node.get('source',{})
         if nid not in index:
             problems.append((nid,'图层在转换过程中丢失',source));continue
         patch={k:v for k,v in (overrides or {}).get(node.get('sharedKey') or nid,{}).get('patch',{}).items() if k not in ('scrollX','scrollY')}
         if patch:manual+=1
         expected={**node,**patch};actual=index[nid]
+        # Missing order is the source traversal order; normalization is lossless.
+        if 'layerOrder' not in expected and 'layerOrder' in actual:expected['layerOrder']=node_index
         # Editor coordinates are intentionally converted to absolute positions.
         for field in sorted(set(expected)|set(actual)):
             if editor and field in ('x','y'):continue

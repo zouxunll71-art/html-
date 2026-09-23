@@ -49,7 +49,7 @@ def main():
  for name in ['package.json','package-lock.json']:shutil.copy2(ROOT/name,client/name)
  for name in ['web','native']:shutil.copytree(ROOT/name,client/name,dirs_exist_ok=True,ignore=shutil.ignore_patterns('__pycache__','symbols','ios-frames','windows'))
  env=dict(os.environ,DEVELOPER_DIR=developer,STUDIO_ROOT=str(engine),CODEX_BINARY=codex,STUDIO_APP_DEST=str(app))
- for directory in [client,engine/'bridge/parser']:subprocess.run(['npm','ci','--ignore-scripts'],cwd=directory,env=env,check=True)
+ for directory in [client,engine/'bridge/parser',engine/'Protocol/Calibration']:subprocess.run(['npm','ci','--ignore-scripts'],cwd=directory,env=env,check=True)
  spec=importlib.util.spec_from_file_location('studio_bootstrap',engine/'scripts/bootstrap.py');bootstrap=importlib.util.module_from_spec(spec);spec.loader.exec_module(bootstrap)
  bootstrap.prepare(engine,launch=False)
  subprocess.run(['/bin/zsh',str(engine/'scripts/build.sh')],cwd=engine,env=env,check=True)

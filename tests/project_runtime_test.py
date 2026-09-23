@@ -23,4 +23,26 @@ class IsolationTests(unittest.TestCase):
   self.assertEqual(records['b']['sessions']['web']['count'],1);self.assertEqual(records['a']['sessions']['ios']['count'],0)
   snapshot=env['runtime']('ios',project_id='b');self.assertEqual(snapshot['projectID'],'b');self.assertFalse(snapshot['editing']);self.assertTrue(snapshot['linked'])
   with self.assertRaises(ValueError):env['event']({'projectID':'a','side':'ios','event':{'type':'navigate'}},'b')
+ def test_input_routes_keep_other_project_session_alive(self):
+  import textwrap,threading
+  source=(ROOT/'engine/bridge/server.py').read_text()
+  start=source.index("    if path=='/ios-input-disconnect':")
+  end=source.index("   if path=='/ios-window':",start)
+  class Connection:
+   def __init__(self,pid):self.lock=threading.RLock();self.session=pid;self.closed=False
+   def close(self):self.closed=True;self.session=None
+   def connect(self,pid):return {'session':self.session}
+   def send(self,pid,session,events):
+    if self.closed or self.session!=session:raise ValueError('expired')
+    return {'ok':True}
+  connections={pid:Connection(pid) for pid in ['a','b']}
+  env={'LOCK':threading.RLock(),'PROJECT_INPUTS':connections,'read':lambda pid:{'id':pid},'mode_for':lambda r:(False,False),'project_input':lambda pid:connections[pid]}
+  code='def route(self,path,body):\n'+textwrap.indent(textwrap.dedent(source[start:end]),' ')
+  exec(code,env)
+  class Response:
+   def respond(self,value):return value
+  h=Response();route=env['route']
+  route(h,'/ios-input-disconnect',{'session':'a'})
+  self.assertTrue(route(h,'/ios-input',{'id':'b','session':'b','events':[]})['ok'])
+  self.assertFalse(connections['b'].closed)
 if __name__=='__main__':unittest.main()

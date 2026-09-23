@@ -19,6 +19,7 @@ def copy_layers(raw,absolute,node_id,include_children=False,point=None):
   if old['id'] not in chosen:continue
   n=copy.deepcopy(old);oldid=n['id'];parent=n.get('parent','');n.update(id=ids[oldid],parent=ids.get(parent,''),sharedKey=None,groupID=group,locked=False)
   if parent not in chosen:n.update(x=point['x']+placed[oldid]['x']-root['x'],y=point['y']+placed[oldid]['y']-root['y'])
+  n.pop('layerOrder',None) # New copies receive their destination order, never the source rank.
   n['name']=(old.get('text') or old.get('name') or oldid).strip()[:80]
   source_page=next((page for page in raw.get('modalPages',[]) if oldid==page or oldid.startswith(page+'/')),raw['id'])
   if not oldid.startswith('$shade'):n['origin']={'node':oldid,'page':source_page,'params':copy.deepcopy(raw.get('routeParams',{}))}

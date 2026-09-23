@@ -1,5 +1,8 @@
 """Reuse every original editor operation in a separately built client target."""
 import shutil, subprocess, os, re
+from editor_sync import patch as patch_editor_sync
+from clipping_editor import patch_order,patch_controller,patch_surface
+import text_color_editor
 from pathlib import Path
 from environment import engine_root,build_env
 client = Path(__file__).resolve().parents[1]
@@ -17,7 +20,14 @@ s=s.replace('input:"p",modifierFlags:[]','input:"w",modifierFlags:.command').rep
 s=s.replace('func loadProjects(){', 'func loadProjects(){if clientEmbedded{return};',1)
 s=s.replace('func useProject(_ p:StudioProject){','func useProject(_ p:StudioProject){\n  clientProjectChanged?(p.id)',1)
 s=s.replace('let encoded=Bridge.shared.token.addingPercentEncoding(withAllowedCharacters:.urlQueryAllowed) ?? "";web.load(URLRequest(url:URL(string:Bridge.shared.base+"/web?token="+encoded)!))','web.load(URLRequest(url:URL(string:"http://127.0.0.1:18777/studio/web")!))')
-p.write_text(s)
+s=s.replace('n.id=UUID().uuidString;project!.pages[pageIndex].nodes.append(n)', 'n.id=UUID().uuidString;n.layerOrder=(page!.nodes.enumerated().map{$0.element.layerOrder ?? Double($0.offset)}.max() ?? -1)+1;project!.pages[pageIndex].nodes.append(n)',1)
+p.write_text(text_color_editor.controller(patch_controller(patch_editor_sync(s))))
+for name in ('EditorRebase.swift','EditorSync.swift','ClippingInspector.swift','ClippingGeometry.swift','TextColorEditor.swift'):
+    shutil.copy2(client/'native'/name,studio/name)
+p=studio/'SourceResources.swift';p.write_text(text_color_editor.source(p.read_text()))
+p=studio/'LayerThumbnail.swift';p.write_text(text_color_editor.layer(p.read_text()))
+p=studio/'LayerReordering.swift';p.write_text(patch_order(p.read_text()))
+p=studio/'DeviceSurface.swift';p.write_text(patch_surface(p.read_text()))
 p=studio/'WorkspaceDesign.swift';s=p.read_text().replace('func layoutWorkspaceDesign(){','func layoutWorkspaceDesign(){\n  if clientEmbedded {layoutClientWorkspace();return}',1);p.write_text(s)
 p=studio/'WorkspaceDesign.swift';s=p.read_text().replace('syncStateLabel.textColor=UIColor(studioHex:text.contains', 'clientSyncChanged?(syncStateLabel.text ?? "同步中…");syncStateLabel.textColor=UIColor(studioHex:text.contains');p.write_text(s)
 p=studio/'SourceResources.swift';s=p.read_text().replace('func showInspectorMode(){','func showInspectorMode(){clientShowInspector?();',1);p.write_text(s)

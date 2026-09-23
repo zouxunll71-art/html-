@@ -24,6 +24,11 @@ ROOT=Path(__file__).resolve().parents[1];STORE=ROOT/'Workspace';CONFIG=json.load
 DEVICES=ProjectDevices(ROOT,CONFIG)
 STARTED_DEVICES=set()
 IOS_INPUT=SimulatorInput(ROOT,CONFIG)
+PROJECT_INPUTS={}
+def project_input(pid):
+ with LOCK:
+  if pid not in PROJECT_INPUTS:PROJECT_INPUTS[pid]=SimulatorInput(ROOT,DEVICES.ensure(pid,read(pid)["model"]["name"]))
+  return PROJECT_INPUTS[pid]
 IOS_FRAMES=SimulatorFrames(ROOT,CONFIG)
 sys.path.insert(0,str(ROOT/'scripts'))
 from source_stamp import fingerprint
@@ -55,8 +60,10 @@ def bump():
 
 def sessions(model):return {s:eng('initial',model=model) for s in ['web','ios']}
 def frame(r,side='ios',base=False):
- if side=='ios' and not base:return eng('compose',model=r['model'],session=r['sessions'][side],overrides=r.get('overrides',{}),additions=r.get('additions',{}))
- return eng('frame',model=r['model'],session=r['sessions'][side])
+ session=r['sessions'][side]
+ if mode_for(r)[1]:session={**session,'editingPage':session['stack'][-1]['page']}
+ if side=='ios' and not base:return eng('compose',model=r['model'],session=session,overrides=r.get('overrides',{}),additions=r.get('additions',{}))
+ return eng('frame',model=r['model'],session=session)
 
 def project(r):
  pages=[]
@@ -70,8 +77,8 @@ def mode_for(r):
 def select_device(pid):
  r=read(pid);config=DEVICES.ensure(pid,r['model']['name'])
  if IOS_FRAMES.config['ios']!=config['ios']:
-  IOS_INPUT.close();IOS_FRAMES.close()
- IOS_INPUT.config=config;IOS_FRAMES.config=config
+  IOS_FRAMES.close()
+ IOS_FRAMES.config=config
  if pid not in STARTED_DEVICES:
   STARTED_DEVICES.add(pid);ios_runner.start(pid,config,finish_ios_run)
  return config
@@ -82,7 +89,6 @@ def publish_assets(r):
   if not (d/a['file']).exists():shutil.copy2(Path(r['source'])/a['source'],d/a['file'])
 def import_project(path):
  global ACTIVE,ERROR
- IOS_INPUT.close()
  source=Path(path).expanduser().resolve();model=compile_project(source)
  for p in STORE.glob('*/record.json'):
   r=json.loads(p.read_text())
@@ -122,7 +128,13 @@ def recompile(r,model):
  publish_assets(r);r['updated']=time.time();store(r);ERROR='';bump()
 def update_edits(persist,body):
  r=read(body.get('id') or body['projectID'])
- if body.get('compileRevision') and body['compileRevision']!=r['model']['hash']:raise ValueError('HTML 已更新，请等待新版本后继续保存，旧编辑不会覆盖新源码')
+ if body.get('compileRevision') and body['compileRevision']!=r['model']['hash']:
+  # Keep the rejected editor payload for recovery. Never apply old full-page snapshots to new HTML.
+  if persist:
+   digest=hashlib.sha256(json.dumps(body,sort_keys=True,ensure_ascii=False).encode()).hexdigest()[:20]
+   backup=folder(r['id'])/'rejected-edits'/(digest+'.json')
+   if not backup.exists():atomic(backup,dict(reason='source-revision-changed',savedAt=time.time(),projectID=r['id'],currentRevision=r['model']['hash'],draft=body))
+  raise ValueError('HTML 已更新，旧编辑不会覆盖新源码；未保存调整已保留，请刷新编辑器')
  pages=body.get('pages') or [body['page']]
  if persist:atomic(folder(r['id'])/'versions'/f'{time.time_ns()}.json',r)
  for edit in pages:
@@ -131,7 +143,7 @@ def update_edits(persist,body):
   raw=frame(r,base=True);base=eng('editor',frame=raw);rawmap={n['id']:n for n in raw['nodes']};basemap={n['id']:n for n in base['nodes']}
   # Reuse the editor snapshot already obtained above instead of sending the
   # same 2000-node frame through the JS worker for a second flatten/diff.
-  ignored={'id','parent','source','sharedKey','textKey','placeholderKey','symbol','selected'}
+  ignored={'id','source','sharedKey','textKey','placeholderKey','symbol','selected'}
   diffs={}
   for edited in edit['nodes']:
    nid=edited['id'];old=basemap.get(nid)
@@ -148,8 +160,9 @@ def update_edits(persist,body):
   # moved parents and scroll offsets, not the unedited source hierarchy.
   for nid,edited in editmap.items():
    if nid not in rawmap:continue
-   original=rawmap[nid];parent=editmap.get(original.get('parent',''))
+   original=rawmap[nid];parent=editmap.get(edited.get('parent',''))
    patch=diffs.setdefault(nid,{})
+   if edited.get('parent','')!=original.get('parent',''):patch['parent']=edited.get('parent','')
    for axis,offset in (('x','scrollX'),('y','scrollY')):
     value=edited[axis]-(parent[axis] if parent else 0)
     if parent and parent.get('type')=='scroll':value+=parent.get(offset,0) or 0
@@ -331,18 +344,21 @@ class Handler(BaseHTTPRequestHandler):
    if path in ('/ios-input-connect','/ios-input','/ios-input-disconnect'):
     if self.command!='POST':return self.respond({'error':'POST required'},405)
     if path=='/ios-input-disconnect':
-     with IOS_INPUT.lock:
-      if body.get('session')==IOS_INPUT.session:IOS_INPUT.close()
+     with LOCK:connections=list(PROJECT_INPUTS.values())
+     for connection in connections:
+      with connection.lock:
+       if body.get('session')==connection.session:connection.close()
      return self.respond({'ok':True})
     with LOCK:
-     if body.get('id')!=ACTIVE or EDITING:raise ValueError('请在当前项目的「运行预览」模式操作模拟器')
-     pid=ACTIVE
+     pid=body.get('id');r=read(pid)
+     if mode_for(r)[1]:raise ValueError('请在当前项目的「运行预览」模式操作模拟器')
+     connection=project_input(pid)
     if path=='/ios-input-connect':
-     result=IOS_INPUT.connect(pid)
+     result=connection.connect(pid)
      with LOCK:
-      if ACTIVE!=pid or EDITING:IOS_INPUT.close();raise ValueError('项目或操作模式已切换')
+      if mode_for(read(pid))[1]:connection.close();raise ValueError('项目或操作模式已切换')
      return self.respond(result)
-    return self.respond(IOS_INPUT.send(pid,body.get('session'),body.get('events')))
+    return self.respond(connection.send(pid,body.get('session'),body.get('events')))
    if path=='/ios-window':
     if self.command!='POST':return self.respond({'error':'POST required'},405)
     simulator=Path(CONFIG['developerDir'])/'Applications/Simulator.app'
@@ -367,7 +383,7 @@ class Handler(BaseHTTPRequestHandler):
      if body.get('id')!=ACTIVE:raise ValueError('项目已切换，请重新运行')
      if ERROR:raise ValueError('请先修复源码错误，再运行最新项目：'+ERROR)
      pid=ACTIVE;r=read(pid)
-    IOS_INPUT.close()
+    project_input(pid).close()
     fresh=compile_project(r['source'])
     with LOCK:
      if ACTIVE!=pid:raise ValueError('项目已切换，请重新运行')
@@ -415,7 +431,8 @@ class Handler(BaseHTTPRequestHandler):
     if path=='/install-authoring-kit':
      r=read(body['id']);authoring.install(r['source']);return self.respond(authoring.payload(r['source']))
     if path=='/activate-project':
-     IOS_INPUT.close();ACTIVE=body['id'];r=read(ACTIVE);mode=r.get('runtimeMode',{});LINKED=mode.get('linked',True);EDITING=mode.get('editing',True);select_device(ACTIVE);bump();return self.respond({'ok':True})
+     if ACTIVE==body['id']:return self.respond({'ok':True,'editing':EDITING})
+     ACTIVE=body['id'];r=read(ACTIVE);mode=r.get('runtimeMode',{});LINKED=mode.get('linked',True);EDITING=mode.get('editing',True);select_device(ACTIVE);bump();return self.respond({'ok':True,'editing':EDITING})
     if path=='/restore-mode':
      if self.command!='POST':raise ValueError('POST required')
      LINKED=bool(body.get('linked',True));EDITING=bool(body.get('editing',True));bump();return self.respond({'ok':True})
@@ -490,11 +507,19 @@ class Handler(BaseHTTPRequestHandler):
       if LINKED:r['sessions']['web']=copy.deepcopy(r['sessions']['ios']);store(r)
      if 'editing'in body:
       EDITING=bool(body['editing'])
-      if EDITING:IOS_INPUT.close()
+      if EDITING:
+       project_input(ACTIVE).close()
+       if ACTIVE:
+        record=read(ACTIVE)
+        for session in record['sessions'].values():
+         page=session['stack'][-1]['page']
+         if record['model']['pages'][page].get('presentation'):
+          session['presentationPaused']=True;session['routeEpoch']=session.get('routeEpoch',0)+1
+        store(record)
       if EDITING and BROWSER_OPEN.get(ACTIVE):CLOSE_BROWSER.add(ACTIVE)
       if not EDITING and ACTIVE:
        for side in ('ios','web'):
-        page=read(ACTIVE)['sessions'][side].get('editingPage')
+        session=read(ACTIVE)['sessions'][side];page=session.get('editingPage') or (session['stack'][-1]['page'] if session.get('presentationPaused') else None)
         if page:event({'side':side,'projectID':ACTIVE,'event':{'type':'navigate','page':page}})
      if ACTIVE:
       r=read(ACTIVE);r['runtimeMode']={'linked':LINKED,'editing':EDITING};store(r)

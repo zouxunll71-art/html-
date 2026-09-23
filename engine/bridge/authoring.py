@@ -4,9 +4,10 @@ from pathlib import Path
 from compiler import TAGS,ATTRS,NUM,ENUM,COLORS,ACTION_FIELDS,OPS
 ROOT=Path(__file__).resolve().parents[1]
 START='<!-- HTML_NATIVE_STUDIO:BEGIN -->';END='<!-- HTML_NATIVE_STUDIO:END -->'
-GUIDES=['HTML编写规范.md','iOS工程规则映射.md','验收清单.md','UI原图复刻规则.md']
+GUIDES=['HTML编写规范.md','iOS工程规则映射.md','验收清单.md','UI原图复刻规则.md','自动参数校准.md','生成素材规则.md']
+CALIBRATION_FILES=['export-preview.py','cli.mjs','calibrate.mjs','metrics.mjs','inspect-asset.mjs','package.json','package-lock.json','README.md']
 def capabilities():
- return {'protocol':'html-native/1','rulesRevision':'native-rules/2','parserRevision':'structured/1','viewport':{'width':393,'height':852},'locales':['en','zh-Hans'],'nativeNavigation':['UINavigationController','UITabBarController'],'linkPresentation':'SFSafariViewController','minimumExportIOS':'15.0','tags':TAGS,'attributes':sorted(ATTRS),'numericStyles':sorted(NUM),'enumStyles':{k:sorted(v) for k,v in ENUM.items()},'colorStyles':sorted(COLORS),'actionFields':{k:sorted(v) for k,v in ACTION_FIELDS.items()},'expressionOperators':sorted(OPS),'images':['png','jpg','jpeg','webp'],'fonts':['ttf','otf'],'limitations':['不是任意 HTML/CSS/JavaScript 转换器','UIKit 弹簧与 HTML 近似曲线需实际两端核对','HTTPS 链接支持系统 Safari；任意网络 API、支付、Keychain 和设备能力尚不在协议中']}
+ return {'protocol':'html-native/1','rulesRevision':'native-rules/2','parserRevision':'structured/1','presentationRevision':'layer-presentation/1','modelAnalysisRevision':'paint-analysis/1','viewport':{'width':393,'height':852},'locales':['en','zh-Hans'],'nativeNavigation':['UINavigationController','UITabBarController'],'linkPresentation':'SFSafariViewController','minimumExportIOS':'15.0','tags':TAGS,'attributes':sorted(ATTRS),'numericStyles':sorted(NUM),'enumStyles':{k:sorted(v) for k,v in ENUM.items()},'colorStyles':sorted(COLORS),'actionFields':{k:sorted(v) for k,v in ACTION_FIELDS.items()},'expressionOperators':sorted(OPS),'images':['png','jpg','jpeg','webp'],'fonts':['ttf','otf'],'limitations':['不是任意 HTML/CSS/JavaScript 转换器','UIKit 弹簧与 HTML 近似曲线需实际两端核对','HTTPS 链接支持系统 Safari；任意网络 API、支付、Keychain 和设备能力尚不在协议中']}
 def target(root,relative):
  p=root/relative
  if not p.resolve().is_relative_to(root.resolve()):raise ValueError('规范安装路径越出项目：'+relative)
@@ -17,6 +18,7 @@ def install(root):
  # Resolve every destination before writing anything; never follow out-of-project symlinks.
  names=['.studio/authoring/schemas.json','AGENTS.md','CODEX_TASK.md','.studio/authoring/HTML编写规范.md','.studio/authoring/iOS工程规则映射.md','.studio/authoring/验收清单.md','.studio/authoring/capabilities.json','.studio/authoring/validate.py','.studio/authoring/system.json','.studio/authoring/examples']
  names+=['.studio/authoring/'+name for name in GUIDES if '.studio/authoring/'+name not in names]
+ names+=['.studio/authoring/calibration/'+name for name in CALIBRATION_FILES]
  paths={n:target(root,n) for n in names}
  agents=paths['AGENTS.md'];existing=agents.read_text() if agents.exists() else ''
  if (START in existing)!=(END in existing):raise ValueError('AGENTS.md 规范区标记不完整，请先修复')
@@ -29,6 +31,7 @@ def install(root):
  agents.write_text(updated)
  task=paths['CODEX_TASK.md']
  if not task.exists():task.write_text((ROOT/'Protocol/Authoring/CODEX_TASK.md').read_text())
+ for name in CALIBRATION_FILES:paths['.studio/authoring/calibration/'+name].write_bytes((ROOT/'Protocol/Calibration'/name).read_bytes())
  for guide in GUIDES:paths['.studio/authoring/'+guide].write_text((ROOT/'Protocol/Authoring'/guide).read_text())
  paths['.studio/authoring/capabilities.json'].write_text(json.dumps(capabilities(),ensure_ascii=False,indent=2))
  paths['.studio/authoring/schemas.json'].write_text((ROOT/'bridge/parser/schemas.json').read_text())
@@ -61,4 +64,4 @@ def new_project(name=None):
 def payload(source=None):
  prompt=(ROOT/'Protocol/Authoring/CODEX_TASK.md').read_text()
  if source:prompt='项目目录：'+str(source)+'\n请只在该项目目录完成任务。\n\n'+prompt
- return {'protocol':'html-native/1','source':str(source or ''),'guide':(ROOT/'Protocol/Authoring/HTML编写规范.md').read_text()+'\n\n'+(ROOT/'Protocol/Authoring/UI原图复刻规则.md').read_text(),'prompt':prompt,'capabilities':capabilities()}
+ return {'protocol':'html-native/1','source':str(source or ''),'guide':(ROOT/'Protocol/Authoring/HTML编写规范.md').read_text()+'\n\n'+(ROOT/'Protocol/Authoring/UI原图复刻规则.md').read_text()+'\n\n'+(ROOT/'Protocol/Authoring/生成素材规则.md').read_text(),'prompt':prompt,'capabilities':capabilities()}

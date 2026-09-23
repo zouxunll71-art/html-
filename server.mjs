@@ -294,7 +294,7 @@ async function handle(req, res) {
   if (req.method === 'POST' && url.pathname.startsWith('/api/')) {
     if (req.headers['x-client-token'] !== CSRF) return json(res, { error: '请求校验失败，请重新打开工作台' }, 403);
     const body = await readBody(req);
-    if(url.pathname.startsWith('/api/thread/')||url.pathname.startsWith('/api/turn/'))await sidebar();
+    if(url.pathname.startsWith('/api/thread/')||(url.pathname.startsWith('/api/turn/')&&!registry.conversations.some(c=>c.id===body.threadId)&&!sidebarSnapshot.conversations.some(c=>c.id===body.threadId)))await sidebar();
     switch (url.pathname) {
       case '/api/mirror/input': {if(!['click','scroll','text','key'].includes(body.kind)||mirrorCommands.length>=20||Date.now()-mirrorUpdated>8000)throw new Error('镜像尚未连接，请等待画面更新');mirrorCommands.push({kind:body.kind,x:Math.min(1,Math.max(0,Number(body.x)||0)),y:Math.min(1,Math.max(0,Number(body.y)||0)),text:String(body.text||'').slice(0,20000),dy:Math.max(-1000,Math.min(1000,Number(body.dy)||0))});mirrorViewed=Date.now();return json(res,{ok:true});}
       case '/api/skill/toggle': {
@@ -373,7 +373,7 @@ async function handle(req, res) {
             }else input.push({type:'localImage',path:file});
           }
           const params = { threadId: c.id, cwd:c.sourcePath, approvalPolicy:'never', sandboxPolicy:{type:'dangerFullAccess'}, input, clientUserMessageId:/^[a-f0-9-]{36}$/.test(body.clientUserMessageId||'')?body.clientUserMessageId:crypto.randomUUID() }; if (body.model) params.model = body.model; if (body.effort) params.effort = body.effort;
-          const catalog=await rpc.call('model/list',{includeHidden:false});
+          const catalog=body.serviceTier==='priority'?await rpc.call('model/list',{includeHidden:false}):{data:[]};
           Object.assign(params,turnSpeed(body.serviceTier,body.model,catalog.data));
           const result=await submitToThread({resume:()=>resume(c.id),start:()=>rpc.call('turn/start',{...params,threadId:c.id,cwd:c.sourcePath}),queue:()=>rpc.call('thread/queue/add',{threadId:c.id,input,clientUserMessageId:params.clientUserMessageId})});
           if(result.queued){c.updatedAt=Date.now();save();sidebarSync.invalidate();return json(res,result);}

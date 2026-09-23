@@ -1,0 +1,8 @@
+{
+  "name": "studio-pixel-calibration",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {"test": "node --test test/*.test.mjs", "setup": "playwright install chromium"},
+  "dependencies": {"playwright": "1.63.0", "pngjs": "7.0.0"}
+}
