@@ -223,3 +223,9 @@ iOS 页面切换（前进、返回、Tab 与声明式弹窗显隐）默认使用
 ## 生成素材工作流（generated-assets/1）
 
 完整执行 engine/Protocol/Authoring/生成素材规则.md：只生成图片素材，不以原件、裁切或抠图替代；完整 UI 图片输入，约束身份、姿态、轮廓、主色与材质，允许细纹理、斑点及发丝变化。检查 PNG 真实尺寸、Alpha 与主体透明度；候选回填真实页面截图验收，逐轮修正并保留回退。原始像素差分和整体视觉分别报告，布局、文字与交互不放宽。提供 inspect-asset.mjs 技术检测，不提供自动视觉审批或新增生图按钮。
+
+### 运行时图层动效与本地模型分析
+
+页面 `presentation` 在编辑覆盖之后控制运行时位置、显隐和文字徽标，编辑布局不回写；`delay.scope=page` 取消离页的旧步骤。模型 `analysis-action` 读取实际 UV 纹理，分析回调和保存回调分离。详见 `engine/Protocol/Authoring/图层运行时动效扩展.md`。
+
+模型浏览器代码由 `engine/scripts/build_model_paint.py` 校验和打包。修改 model-paint.js 后设置 ESBUILD_BIN 指向本地 esbuild 0.25.10 再构建；构建入口拒绝静默复用过期 bundle。

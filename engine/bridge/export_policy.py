@@ -1,5 +1,6 @@
 """Export the current composed iOS appearance, never resurrect stale source layers."""
 import copy
+from ios_rules import bound_text_layers,is_bound_text_override
 
 EDITOR_DEFAULTS={'fontName':'','asset':'','capPixels':0,'capPoints':13,'anchor':'topLeft'}
 
@@ -18,5 +19,10 @@ def prepare(record):
  ]}
  # compose already applies overrides only to present source nodes. Preserve them
  # verbatim so conditional and repeated layers retain their current behavior.
+ # Normalize only the export copy. Keep the user's editable layout and history.
+ bound=bound_text_layers(snapshot.get('model',{}));report['boundValuesFollowingState']=[]
+ for key,item in snapshot.get('overrides',{}).items():
+  if is_bound_text_override(snapshot.get('model',{}),key,bound) and 'text' in item.get('patch',{}):
+   del item['patch']['text'];report['boundValuesFollowingState'].append(key)
  snapshot['conflicts']=[]
  return snapshot,report

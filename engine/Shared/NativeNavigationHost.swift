@@ -52,7 +52,13 @@ final class NativeNavigationHost:UIViewController,UITabBarControllerDelegate,UIN
    nav=plainNavigation!;attach(nav)
   }
   activeNavigation=nav
-  let appearance=UINavigationBarAppearance();appearance.configureWithOpaqueBackground();appearance.backgroundColor=background;nav.navigationBar.standardAppearance=appearance;nav.navigationBar.scrollEdgeAppearance=appearance;nav.navigationBar.tintColor=tint
+  let transparentTop=chrome["topBarTransparent"] as? Bool ?? false
+  let appearance=UINavigationBarAppearance()
+  if transparentTop {appearance.configureWithTransparentBackground();appearance.backgroundColor = .clear;appearance.backgroundEffect=nil;appearance.shadowColor = .clear}
+  else {appearance.configureWithOpaqueBackground();appearance.backgroundColor=background}
+  nav.navigationBar.standardAppearance=appearance;nav.navigationBar.scrollEdgeAppearance=appearance
+  nav.navigationBar.compactAppearance=appearance;nav.navigationBar.compactScrollEdgeAppearance=appearance
+  nav.navigationBar.isTranslucent=transparentTop;nav.navigationBar.tintColor=tint
   var controllers=[UIViewController]()
   for (index,entry) in stack.enumerated(){
    let route=entry["page"] as? String ?? ""

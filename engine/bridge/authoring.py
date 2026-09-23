@@ -4,7 +4,7 @@ from pathlib import Path
 from compiler import TAGS,ATTRS,NUM,ENUM,COLORS,ACTION_FIELDS,OPS
 ROOT=Path(__file__).resolve().parents[1]
 START='<!-- HTML_NATIVE_STUDIO:BEGIN -->';END='<!-- HTML_NATIVE_STUDIO:END -->'
-GUIDES=['HTML编写规范.md','iOS工程规则映射.md','验收清单.md','UI原图复刻规则.md','自动参数校准.md','生成素材规则.md']
+GUIDES=['HTML编写规范.md','iOS工程规则映射.md','验收清单.md','UI原图复刻规则.md','自动参数校准.md','生成素材规则.md','图层运行时动效扩展.md']
 CALIBRATION_FILES=['export-preview.py','cli.mjs','calibrate.mjs','metrics.mjs','inspect-asset.mjs','package.json','package-lock.json','README.md']
 def capabilities():
  return {'protocol':'html-native/1','rulesRevision':'native-rules/2','parserRevision':'structured/1','presentationRevision':'layer-presentation/1','modelAnalysisRevision':'paint-analysis/1','viewport':{'width':393,'height':852},'locales':['en','zh-Hans'],'nativeNavigation':['UINavigationController','UITabBarController'],'linkPresentation':'SFSafariViewController','minimumExportIOS':'15.0','tags':TAGS,'attributes':sorted(ATTRS),'numericStyles':sorted(NUM),'enumStyles':{k:sorted(v) for k,v in ENUM.items()},'colorStyles':sorted(COLORS),'actionFields':{k:sorted(v) for k,v in ACTION_FIELDS.items()},'expressionOperators':sorted(OPS),'images':['png','jpg','jpeg','webp'],'fonts':['ttf','otf'],'limitations':['不是任意 HTML/CSS/JavaScript 转换器','UIKit 弹簧与 HTML 近似曲线需实际两端核对','HTTPS 链接支持系统 Safari；任意网络 API、支付、Keychain 和设备能力尚不在协议中']}

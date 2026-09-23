@@ -7,6 +7,8 @@ from pathlib import Path
 from environment import engine_root,build_env
 client = Path(__file__).resolve().parents[1]
 original = engine_root()
+# Refuse stale browser model code when rebuilding the workbench.
+subprocess.run(['/usr/bin/python3',str(client/'engine/scripts/build_model_paint.py'),str(original)],check=True)
 target = client/'NativeHost'
 for folder in ('Studio','Shared'):
     shutil.copytree(original/folder,target/folder,dirs_exist_ok=True)

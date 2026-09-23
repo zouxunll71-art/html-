@@ -67,6 +67,7 @@ def verify_node(node,localization,ios,where):
 def verify_navigation(nav,pages,localization,actions):
  if nav is None:return
  require(isinstance(nav,dict) and not set(nav)-{'tabs','tint','background','topBarTransparent'},'unsupported navigation configuration')
+ if 'topBarTransparent' in nav:require(isinstance(nav['topBarTransparent'],bool),'topBarTransparent must be boolean')
  for color in ('tint','background'):
   if color in nav:require(isinstance(nav[color],str) and re.fullmatch(r'#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?',nav[color]),'invalid navigation '+color)
  tabs=nav.get('tabs',[]);require(isinstance(tabs,list) and len(tabs)<=5,'native tabs require 0-5 items')
@@ -91,11 +92,30 @@ def verify_navigation(nav,pages,localization,actions):
    if 'symbol' in button:require(isinstance(button['symbol'],str) and re.fullmatch(r'[a-z0-9]+(?:[.-][a-z0-9]+)*',button['symbol']),'invalid navigation SF Symbol')
    require(button.get('side','right') in ('left','right'),'invalid button side')
 
+def bound_text_layers(model):
+ """Editable values are runtime data, never a localized static copy override."""
+ layers=set()
+ def walk(node,path):
+  if node.get('bind') and node.get('type') in ('nativeTextField','nativeTextView'):
+   layers.add(path)
+   if node.get('shared'):layers.add(node['shared'])
+  for child in node.get('children',[]):walk(child,path+'/'+child['id'])
+ for page_id,page in model.get('pages',{}).items():
+  if page.get('root'):walk(page['root'],page_id)
+ return layers
+
+def is_bound_text_override(model,key,fields=None):
+ # Repeated instances retain the declaration identity after removing item keys.
+ return re.sub(r'\[[^\]]*\]','',key) in (fields if fields is not None else bound_text_layers(model))
+
 def export_issues(record):
  model=record['model'];issues=[]
  if not model.get('ios'):issues.append('项目尚未采用 iOS 工程规则：请补齐本地化、原生导航和权限说明后导出。')
- for item in record.get('overrides',{}).values():
-  if any(k in item.get('patch',{}) for k in ('text','placeholder','options','action')):issues.append('iOS 覆盖包含未本地化文案或独立动作，请回写 HTML 的 key / actions 后导出。');break
+ bound=bound_text_layers(model)
+ for key,item in record.get('overrides',{}).items():
+  forbidden={'text','placeholder','options','action'}
+  if is_bound_text_override(model,key,bound):forbidden.remove('text')
+  if any(k in item.get('patch',{}) for k in forbidden):issues.append('iOS 覆盖包含未本地化文案或独立动作，请回写 HTML 的 key / actions 后导出。');break
  for page,nodes in record.get('additions',{}).items():
   for n in nodes:
    if n.get('origin') and n['origin'].get('page') not in model['pages']:issues.append('复制图层的源页面已删除：'+page+'/'+n['id'])
