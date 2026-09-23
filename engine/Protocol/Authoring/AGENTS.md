@@ -53,3 +53,8 @@ HTML 是行为与资源来源，iOS 覆盖用于独立调整外观。不能改�
 自动参数校准工具已随规范提供于 `.studio/authoring/calibration/`。有可运行 HTML、锁定原图和测量参数时先读 `自动参数校准.md` 并执行截图校准；此工具的严格像素判定仍要求零差异，生成素材的整体视觉按《生成素材规则.md》另外验收，使用 --apply 后必须验证持久化源码。ui-* 原文件须先通过 export-preview.py 使用真实渲染器生成隔离预览；尚不支持校准 iOS，不得用候选结果代替最终输出。
 
 兼容尚未重新安装规范的项目：若项目内缺少校准脚本，读取 `.studio/authoring/system.json` 的 systemRoot，在该目录的 Protocol/Calibration 使用已安装工具和 README.md；不覆盖旧项目定制规范，不因此改动业务源码。
+
+
+## 3D 与运行时图层能力
+
+任务涉及 3D 模型、模型彩绘或纹理保存时完整读取 `.studio/authoring/模型彩绘扩展.md`；涉及编辑后图层的运行时显隐、位移、徽标或模型纹理分析时读取 `.studio/authoring/图层运行时动效扩展.md`。两端能力、保存隔离、导出和限制以指南及实际验收为准，不把已支持的原生模型能力误报为封面图。若旧项目缺少指南，读取 system.json 的 systemRoot 对应 Protocol/Authoring 文件，不覆盖项目定制规则。

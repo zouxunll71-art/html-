@@ -12,6 +12,8 @@ class InstallTest(unittest.TestCase):
    self.assertTrue((p/'.studio/authoring/自动参数校准.md').is_file())
    self.assertTrue((p/'.studio/authoring/生成素材规则.md').is_file())
    self.assertIn('generated-assets/1',authoring.payload()['guide'])
+   for guide in ['模型彩绘扩展.md','图层运行时动效扩展.md']:
+    self.assertTrue((p/'.studio/authoring'/guide).is_file())
    authoring.install(p)
    self.assertEqual((p/'AGENTS.md').read_text().count('USER CUSTOM RULE'),1)
    self.assertEqual((p/'CODEX_TASK.md').read_text(),'USER CUSTOM TASK')
