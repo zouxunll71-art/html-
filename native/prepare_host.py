@@ -16,16 +16,22 @@ studio = target/'Studio'
 (studio/'App.swift').write_text((client/'native/Host.swift').read_text())
 (studio/'ClientLayout.swift').write_text((client/'native/ClientLayout.swift').read_text())
 p=studio/'StudioController.swift'
-s=p.read_text().replace(' let inspectorTabs=', ' var clientEmbedded=false\n var clientSyncChanged:((String)->Void)?\n var clientModeChanged:((Bool)->Void)?\n var clientShowInspector:(()->Void)?\n var clientProjectChanged:((String)->Void)?\n var clientLeftContainer:UIView?\n var clientRightContainer:UIView?\n let clientEditingScroll=UIScrollView()\n let clientToolsScroll=UIScrollView()\n let clientPhoneScroll=ClientCanvasScrollView()\n var clientZoom:CGFloat=0.8\n var clientFit=true\n let inspectorTabs=',1)
+s=p.read_text().replace(' let inspectorTabs=', ' var clientEmbedded=false\n var clientWorkbenchEnabled=false\n var clientSyncChanged:((String)->Void)?\n var clientModeChanged:((Bool)->Void)?\n var clientShowInspector:(()->Void)?\n var clientProjectChanged:((String)->Void)?\n var clientLeftContainer:UIView?\n var clientRightContainer:UIView?\n let clientEditingScroll=UIScrollView()\n let clientToolsScroll=UIScrollView()\n let clientPhoneScroll=ClientCanvasScrollView()\n var clientZoom:CGFloat=0.8\n var clientFit=true\n let inspectorTabs=',1)
 s=s.replace('running=mode.selectedSegmentIndex==1;', 'running=mode.selectedSegmentIndex==1;clientModeChanged?(running);',1)
 s=s.replace('input:"p",modifierFlags:[]','input:"w",modifierFlags:.command').replace('按 P','按 Command+W')
+s=s.replace('iosFrames.imageView=left.imageView;iosFrames.start()', 'iosFrames.imageView=left.imageView;if !clientEmbedded{iosFrames.start()}',1)
 s=s.replace('func loadProjects(){', 'func loadProjects(){if clientEmbedded{return};',1)
 s=s.replace('func useProject(_ p:StudioProject){','func useProject(_ p:StudioProject){\n  clientProjectChanged?(p.id)',1)
-s=s.replace('let encoded=Bridge.shared.token.addingPercentEncoding(withAllowedCharacters:.urlQueryAllowed) ?? "";web.load(URLRequest(url:URL(string:Bridge.shared.base+"/web?token="+encoded)!))','web.load(URLRequest(url:URL(string:"http://127.0.0.1:18777/studio/web")!))')
+s=s.replace('let encoded=Bridge.shared.token.addingPercentEncoding(withAllowedCharacters:.urlQueryAllowed) ?? "";web.load(URLRequest(url:URL(string:Bridge.shared.base+"/web?token="+encoded)!))','if !clientEmbedded{web.load(URLRequest(url:URL(string:"http://127.0.0.1:18777/studio/web")!))}')
 s=s.replace('n.id=UUID().uuidString;project!.pages[pageIndex].nodes.append(n)', 'n.id=UUID().uuidString;n.layerOrder=(page!.nodes.enumerated().map{$0.element.layerOrder ?? Double($0.offset)}.max() ?? -1)+1;project!.pages[pageIndex].nodes.append(n)',1)
-p.write_text(text_color_editor.controller(patch_controller(patch_editor_sync(s))))
-for name in ('EditorRebase.swift','EditorSync.swift','ClippingInspector.swift','ClippingGeometry.swift','TextColorEditor.swift'):
+s=s.replace('var fetching=false;defer{if !fetching{self.liveStatusBusy=false}}', 'var fetching=false;defer{if !fetching{self.liveStatusBusy=false}};guard !self.clientEmbedded || self.clientWorkbenchEnabled else{return}',1)
+s=text_color_editor.controller(patch_controller(patch_editor_sync(s)))
+s=s.replace('func pollRoute(){guard ', 'func pollRoute(){guard (!clientEmbedded || clientWorkbenchEnabled),',1)
+p.write_text(s)
+p=studio/'EmbeddedSimulator.swift';s=p.read_text().replace('func connectEmbeddedSimulator(){','func connectEmbeddedSimulator(){\n  guard !clientEmbedded || clientWorkbenchEnabled else{return}',1);p.write_text(s)
+for name in ('WorkbenchPerformance.swift','EditorRebase.swift','EditorSync.swift','ClippingInspector.swift','ClippingGeometry.swift','TextColorEditor.swift'):
     shutil.copy2(client/'native'/name,studio/name)
+p=studio/'NativePreviewMessages.swift';p.write_text(p.read_text().replace('func handleNativePreviewMessage(_ message:[String:Any])->Bool {', 'func handleNativePreviewMessage(_ message:[String:Any])->Bool {\n  if ["performance","performanceResources","performanceConfirmation"].contains(message["type"] as? String ?? ""){WorkbenchPerformance.report(message);return true}'))
 p=studio/'SourceResources.swift';p.write_text(text_color_editor.source(p.read_text()))
 p=studio/'LayerThumbnail.swift';p.write_text(text_color_editor.layer(p.read_text()))
 p=studio/'LayerReordering.swift';p.write_text(patch_order(p.read_text()))
@@ -35,7 +41,9 @@ p=studio/'WorkspaceDesign.swift';s=p.read_text().replace('syncStateLabel.textCol
 p=studio/'SourceResources.swift';s=p.read_text().replace('func showInspectorMode(){','func showInspectorMode(){clientShowInspector?();',1);p.write_text(s)
 p=studio/'GroupSelection.swift';s=p.read_text().replace('func chooseLayer(_ id:String?){','func chooseLayer(_ id:String?){\n  if id != nil {clientShowInspector?()}',1);p.write_text(s)
 # Use the client lossless framebuffer stream; the original bridge is unchanged.
-p=studio/'IOSFrames.swift';s=p.read_text().replace('Bridge.shared.base+endpoint','(endpoint=="/ios-stream" ? "http://127.0.0.1:18777/api/ios-stream" : Bridge.shared.base+endpoint)');p.write_text(s)
+p=studio/'IOSFrames.swift';s=p.read_text().replace('imageView?.image=UIImage(cgImage:image)', 'imageView?.image=UIImage(cgImage:image);WorkbenchPerformance.shared.presented(image)').replace('Bridge.shared.base+endpoint','(endpoint=="/ios-stream" ? "http://127.0.0.1:18777/api/ios-stream" : Bridge.shared.base+endpoint)')
+s=s.replace('self.onLocalSurfacePresented?(sequence,ticks,presented)', 'self.onLocalSurfacePresented?(sequence,ticks,presented);if WorkbenchPerformance.shared.isActive,let sampled=self.currentImageForProbe(){WorkbenchPerformance.shared.presented(sampled,endpoint:"rendered-surface-sampled-after-present");WorkbenchPerformance.report(["type":"localSurfacePresented","sequence":sequence,"sourceMachTicks":ticks,"presentedTime":presented])}')
+p.write_text(s)
 # Align the live screen and mask to display pixels before one final downsample.
 p=studio/'DeviceSurface.swift';s=p.read_text().replace('imageView.contentMode = .scaleToFill;', 'imageView.contentMode = .scaleToFill;imageView.layer.minificationFilter = .trilinear;')
 s=s.replace('return CGRect(x:27*s,y:18*s,width:402*s,height:874*s)', 'let pixels=window?.screen.scale ?? traitCollection.displayScale;func snap(_ n:CGFloat)->CGFloat{(n*pixels).rounded()/pixels};return CGRect(x:snap(27*s),y:snap(18*s),width:snap(402*s),height:snap(874*s))')

@@ -10,6 +10,9 @@ with tempfile.TemporaryDirectory() as d:
  before=signature(r)
  (r/'HTMLNativeStudio/iOS/build').mkdir(parents=True);(r/'HTMLNativeStudio/iOS/build/export.swift').write_text('generated')
  assert signature(r)==before
+ (r/'qa').mkdir();(r/'qa/reference.png').write_bytes(b'qa');assert signature(r)==before
+ (r/'assets/qa').mkdir(parents=True);(r/'assets/qa/icon.png').write_bytes(b'asset');assert signature(r)!=before
+ before=signature(r)
  p.write_text('new');assert signature(r)!=before
  before=signature(r);q=r/'pages/new.html';q.write_text('new');assert signature(r)!=before
  before=signature(r);q.unlink();assert signature(r)!=before

@@ -10,11 +10,58 @@ func studioContainerHitTest(_ container:UIView,_ point:CGPoint,_ event:UIEvent?,
 }
 final class PassThroughContainer:UIView {var acceptsBackgroundTap=false;override func hitTest(_ point:CGPoint,with event:UIEvent?)->UIView?{studioContainerHitTest(self,point,event,acceptsBackground:acceptsBackgroundTap)}}
 final class PassThroughImageView:UIImageView {var acceptsBackgroundTap=false;override func hitTest(_ point:CGPoint,with event:UIEvent?)->UIView?{studioContainerHitTest(self,point,event,acceptsBackground:acceptsBackgroundTap)}}
+private final class ParsedSceneNode:NSObject {
+ let specification:NSDictionary;let node:StudioNode
+ init(_ specification:[String:Any],_ node:StudioNode){self.specification=specification as NSDictionary;self.node=node}
+}
 final class NativeSceneController:UIViewController,UIScrollViewDelegate,UITextFieldDelegate,UITextViewDelegate,UIGestureRecognizerDelegate {
+ // Keep a small number of detached page hierarchies. Re-entering a route
+ // updates its live state while avoiding repeated UILabel/control allocation.
+ private struct CachedPage {let views:[String:UIView];let kinds:[String:String];let specs:[String:[String:Any]];let width:CGFloat}
+ private var pageCache:[String:CachedPage]=[:],pageOrder=[String](),currentPageKey=""
+ private let preserveTypographyPageViews=ProcessInfo.processInfo.arguments.contains("--studio-preserve-font-page-cache")
+ var cacheIdentity="" {didSet{if cacheIdentity != oldValue{pageCache.removeAll();pageOrder.removeAll();currentPageKey="";specs.removeAll()}}}
+ private func switchPage(_ page:[String:Any])->Bool?{
+  let key=page["id"] as? String ?? ""
+  guard !key.isEmpty,key != currentPageKey else{return nil}
+  if !currentPageKey.isEmpty,!kinds.values.contains("model3d"),!kinds.values.contains("nativeSpinner"),views.count<=900{
+   for item in views.values where item.superview === view{item.removeFromSuperview()}
+   pageCache[currentPageKey]=CachedPage(views:views,kinds:kinds,specs:specs,width:renderedWidth)
+   pageOrder.removeAll{$0==currentPageKey};pageOrder.append(currentPageKey)
+  }else{for item in views.values{item.removeFromSuperview()}}
+  scrollWork.values.forEach{$0.cancel()};scrollWork.removeAll();localScrollUntil.removeAll()
+  let restored=pageCache[key] != nil
+  if let cached=pageCache.removeValue(forKey:key){
+   views=cached.views;kinds=cached.kinds;specs=cached.specs;renderedWidth=cached.width
+   for item in views.values where item.superview==nil{view.addSubview(item)}
+  }else{views.removeAll();kinds.removeAll();specs.removeAll()}
+  pageOrder.removeAll{$0==key};currentPageKey=key
+  while pageOrder.count>3 || pageCache.values.reduce(0,{$0+$1.views.count})>900{
+   guard !pageOrder.isEmpty else{break};pageCache.removeValue(forKey:pageOrder.removeFirst())
+  }
+  return restored
+ }
+ override func didReceiveMemoryWarning(){super.didReceiveMemoryWarning();pageCache.removeAll();pageOrder.removeAll();parsedNodes.removeAllObjects()}
  var scene:[String:Any]=[:];var views:[String:UIView]=[:];var kinds:[String:String]=[:];var specs:[String:[String:Any]]=[:]
  var modelLoader:((String,@escaping(Result<Data,Error>)->Void)->Void)?;var paintStore:NativeModelView.Store?;var modelProject="";var editingModels=false {didSet{for view in views.values{(view as? NativeModelView)?.renderer.isUserInteractionEnabled = !editingModels}}}
  var assetProvider:((String)->UIImage?)?;var onEvent:(([String:Any])->Void)?;var applying=false;var animation:UIViewPropertyAnimator?;var lastAnimationID="";var enteringAnimation=false;var animationGhosts=[UIView]()
- var layoutConstraints:[String:[NSLayoutConstraint]]=[:];var contentConstraints:[String:[NSLayoutConstraint]]=[:];var layingOut=false;var renderedWidth:CGFloat = -1;var layoutSize=CGSize.zero
+ var layingOut=false;var renderedWidth:CGFloat = -1;var layoutSize=CGSize.zero
+ private let parsedNodes:NSCache<NSString,ParsedSceneNode> = {let cache=NSCache<NSString,ParsedSceneNode>();cache.countLimit=1024;return cache}()
+ private let nodeDecoder=JSONDecoder()
+ func invalidateTypography(){
+  fonts.invalidate();specs.removeAll()
+  if preserveTypographyPageViews {
+   // Font registration changes UIFont resolution, not stable UIView identity.
+   // Invalidate every cached spec so all controls reconfigure when restored.
+   // ParsedSceneNode holds declarations only, never a resolved UIFont.
+   pageCache=pageCache.mapValues{CachedPage(views:$0.views,kinds:$0.kinds,specs:[:],width:$0.width)}
+  }else{pageCache.removeAll();pageOrder.removeAll()}
+ }
+ private func parsedNode(_ specification:[String:Any],id:String)->StudioNode{
+  if let cached=parsedNodes.object(forKey:id as NSString),cached.specification.isEqual(to:specification){return cached.node}
+  guard let data=try? JSONSerialization.data(withJSONObject:specification),let node=try? nodeDecoder.decode(StudioNode.self,from:data) else{return StudioNode()}
+  parsedNodes.setObject(ParsedSceneNode(specification,node),forKey:id as NSString);return node
+ }
  let fonts=NativeTypography();var scrollWork:[String:DispatchWorkItem]=[:];var localScrollUntil:[String:TimeInterval]=[:]
  override func viewDidLoad(){super.viewDidLoad();view.backgroundColor = .white;let tap=UITapGestureRecognizer(target:self,action:#selector(dismissKeyboard));tap.cancelsTouchesInView=false;tap.delegate=self;view.addGestureRecognizer(tap)}
  func gestureRecognizer(_ gestureRecognizer:UIGestureRecognizer,shouldReceive touch:UITouch)->Bool{var target=touch.view;while let item=target{if item is UITextField || item is UITextView{return false};target=item.superview};return true}
@@ -26,6 +73,12 @@ final class NativeSceneController:UIViewController,UIScrollViewDelegate,UITextFi
   animationGhosts.forEach{$0.removeFromSuperview()};animationGhosts.removeAll()
  }
  func apply(_ page:[String:Any],animated:Bool=true) {
+  let profile=NativeApplyProfile.active,start=profile?.clock(),context=profile?.context ?? "",profilePage=page["id"] as? String ?? ""
+  var cacheResult:Bool?,completedNodePass=false,created=0,configured=0,specHit=0
+  defer{if let profile=profile,let start=start{
+   profile.scenePass(kind:"apply",page:profilePage,context:context,start:start)
+   if completedNodePass{profile.sceneWork(page:profilePage,context:context,counts:["cacheHit":cacheResult==true ? 1:0,"cacheMiss":cacheResult==false ? 1:0,"samePage":cacheResult==nil ? 1:0,"created":created,"configured":configured,"specHit":specHit])}
+  }}
   loadViewIfNeeded()
   if !enteringAnimation{finishSceneAnimation()}
   if animated,!UIAccessibility.isReduceMotionEnabled,let a=page["animation"] as? [String:Any],let duration=a["duration"] as? Double,duration>0,let aid=page["animationID"] as? String,aid != lastAnimationID {
@@ -39,17 +92,19 @@ final class NativeSceneController:UIViewController,UIScrollViewDelegate,UITextFi
    animator.addCompletion{_ in ghosts.forEach{$0.removeFromSuperview()}};animation=animator;animator.startAnimation(afterDelay:a["delay"] as? Double ?? 0);return
   }
 
-  loadViewIfNeeded();scene=page;applying=true
+  loadViewIfNeeded();cacheResult=switchPage(page);scene=page;applying=true
   if abs(renderedWidth-view.bounds.width)>0.5{renderedWidth=view.bounds.width;specs.removeAll()}
+  let eventDeclarations=page["events"] as? [String:[String:Any]] ?? [:]
   let nodes=page["nodes"] as? [[String:Any]] ?? [];let ids=Set(nodes.compactMap{$0["id"] as? String})
-  for id in Array(views.keys) where !ids.contains(id){scrollWork.removeValue(forKey:id)?.cancel();localScrollUntil.removeValue(forKey:id);NSLayoutConstraint.deactivate(layoutConstraints.removeValue(forKey:id) ?? []);NSLayoutConstraint.deactivate(contentConstraints.removeValue(forKey:id) ?? []);views.removeValue(forKey:id)?.removeFromSuperview();kinds.removeValue(forKey:id);specs.removeValue(forKey:id)}
+  let removed=Array(views.keys).filter{!ids.contains($0)}
+  for id in removed{scrollWork.removeValue(forKey:id)?.cancel();localScrollUntil.removeValue(forKey:id);views.removeValue(forKey:id)?.removeFromSuperview();kinds.removeValue(forKey:id);specs.removeValue(forKey:id)}
   for (nodeIndex,n) in nodes.enumerated() {
    guard let id=n["id"] as? String,let declaredKind=n["type"] as? String else{continue};let kind=n["modelAsset"] is String ? "model3d" : declaredKind
    let paintOrder=CGFloat(n["layerOrder"] as? Double ?? Double(nodeIndex))
-   if let previous=specs[id],NSDictionary(dictionary:previous).isEqual(to:n),let cached=views[id]{cached.layer.zPosition=paintOrder;cached.superview?.bringSubviewToFront(cached);continue}
+   if let previous=specs[id],NSDictionary(dictionary:previous).isEqual(to:n),let cached=views[id]{if profile != nil{specHit+=1};cached.layer.zPosition=paintOrder;cached.superview?.bringSubviewToFront(cached);continue}
    var v=views[id]
    if kinds[id] != kind {
-    NSLayoutConstraint.deactivate(layoutConstraints.removeValue(forKey:id) ?? []);NSLayoutConstraint.deactivate(contentConstraints.removeValue(forKey:id) ?? []);v?.removeFromSuperview()
+    v?.removeFromSuperview()
     switch kind {
     case "text":let label=UILabel();label.numberOfLines=0;v=label
     case "model3d":v=NativeModelView()
@@ -68,25 +123,24 @@ final class NativeSceneController:UIViewController,UIScrollViewDelegate,UITextFi
     case "scroll":let c=UIScrollView();c.contentInsetAdjustmentBehavior = .never;c.delegate=self;c.keyboardDismissMode = .interactive;v=c
     default:v=PassThroughContainer()
     }
-    guard let fresh=v else{continue};fresh.accessibilityIdentifier=id;if enteringAnimation{fresh.alpha=0}
-    if !(fresh is NativeModelView) && !(fresh is UIControl) && !(fresh is UITextView) && !((page["events"] as? [String:[String:Any]])?[id]?["action"] as? String ?? "").isEmpty{fresh.addGestureRecognizer(UITapGestureRecognizer(target:self,action:#selector(tapped(_:))))}
+    guard let fresh=v else{continue};if profile != nil{created+=1};fresh.accessibilityIdentifier=id;if enteringAnimation{fresh.alpha=0}
+    if !(fresh is NativeModelView) && !(fresh is UIControl) && !(fresh is UITextView) && !(eventDeclarations[id]?["action"] as? String ?? "").isEmpty{fresh.addGestureRecognizer(UITapGestureRecognizer(target:self,action:#selector(tapped(_:))))}
     views[id]=fresh;kinds[id]=kind
    }
-   guard let item=v else{continue};specs[id]=n
+   guard let item=v else{continue};if profile != nil{configured+=1};specs[id]=n
    if !(item is NativeModelView) && !(item is UIControl) && !(item is UITextView) && !(n["action"] as? String ?? "").isEmpty && (item.gestureRecognizers ?? []).isEmpty{item.addGestureRecognizer(UITapGestureRecognizer(target:self,action:#selector(tapped(_:))))}
-   let action=(page["events"] as? [String:[String:Any]])?[id]?["action"] as? String ?? ""
+   let action=eventDeclarations[id]?["action"] as? String ?? ""
    let acceptsTap = !action.isEmpty || id.hasPrefix("$shade")
    if let container=item as? PassThroughContainer{container.acceptsBackgroundTap=acceptsTap}
    if let image=item as? PassThroughImageView{image.acceptsBackgroundTap=acceptsTap}
    let parent=views[n["parent"] as? String ?? ""] ?? view!
-   if item.superview !== parent{NSLayoutConstraint.deactivate(layoutConstraints.removeValue(forKey:id) ?? []);parent.addSubview(item)}
-   item.translatesAutoresizingMaskIntoConstraints=false
-   if layoutConstraints[id]==nil {
-    let lead=(parent as? UIScrollView)?.contentLayoutGuide.leadingAnchor ?? parent.leadingAnchor,top=(parent as? UIScrollView)?.contentLayoutGuide.topAnchor ?? parent.topAnchor
-    let constraints=[item.leadingAnchor.constraint(equalTo:lead),item.topAnchor.constraint(equalTo:top),item.widthAnchor.constraint(equalToConstant:1),item.heightAnchor.constraint(equalToConstant:1)];layoutConstraints[id]=constraints;NSLayoutConstraint.activate(constraints)
-   }
+   if item.superview !== parent{parent.addSubview(item)}
+   // The scene contract already specifies every position and size. Resolve it
+   // directly instead of solving four new constraints per node on every route.
+   item.translatesAutoresizingMaskIntoConstraints=true
+   item.autoresizingMask=[]
    if let control=item as? UIControl{control.isSelected=n["selected"] as? Bool ?? false;control.isEnabled = !(n["disabled"] as? Bool ?? false)};item.isHidden=n["hidden"] as? Bool ?? false;item.isUserInteractionEnabled = !(n["disabled"] as? Bool ?? false) && (!(item is UILabel || item is NativeDrawingView) || acceptsTap)
-   var node=StudioNode();if let d=try? JSONSerialization.data(withJSONObject:n),let decoded=try? JSONDecoder().decode(StudioNode.self,from:d){node=decoded}
+   let node=parsedNode(n,id:id)
    item.backgroundColor=UIColor(studioHex:n["fill"] as? String ?? "#00000000");item.alpha=number(n,"opacity",1);item.layer.cornerRadius=number(n,"cornerRadius");item.layer.borderWidth=number(n,"strokeWidth");item.layer.borderColor=UIColor(studioHex:n["strokeColor"] as? String ?? "#00000000").cgColor;item.clipsToBounds=node.clipsContent
    if let g=n["gradient"] as? [String:Any],let colors=g["colors"] as? [String]{let layer=(item.layer.sublayers?.first{$0.name=="studio.gradient"} as? CAGradientLayer) ?? CAGradientLayer();layer.name="studio.gradient";layer.colors=colors.map{UIColor(studioHex:$0).cgColor};layer.locations=(g["locations"] as? [Double])?.map{NSNumber(value:$0)};let start=g["start"] as? [CGFloat] ?? [0,0],end=g["end"] as? [CGFloat] ?? [0,1];layer.startPoint=CGPoint(x:start[0],y:start[1]);layer.endPoint=CGPoint(x:end[0],y:end[1]);layer.cornerRadius=item.layer.cornerRadius;if layer.superlayer==nil{item.layer.insertSublayer(layer,at:0)}}else{item.layer.sublayers?.first{$0.name=="studio.gradient"}?.removeFromSuperlayer()}
    if let sh=n["shadow"] as? [String:Any]{item.layer.shadowColor=UIColor(studioHex:sh["color"] as? String ?? "#00000033").cgColor;item.layer.shadowOpacity=1;item.layer.shadowOffset=CGSize(width:number(sh,"x"),height:number(sh,"y"));item.layer.shadowRadius=number(sh,"blur")/2}else{item.layer.shadowOpacity=0}
@@ -101,7 +155,7 @@ final class NativeSceneController:UIViewController,UIScrollViewDelegate,UITextFi
     for span in node.textSpans ?? [] where span.start>=0 && span.end<=a.length && span.end>span.start{var style=node;style.fontSize=(span.fontSize ?? node.fontSize)*fontScale;style.fontWeight=span.fontWeight ?? node.fontWeight;style.italic=span.italic ?? node.italic;let r=NSRange(location:span.start,length:span.end-span.start);a.addAttribute(.font,value:fonts.font(style),range:r);if let c=span.color{a.addAttribute(.foregroundColor,value:UIColor(studioHex:c),range:r)};if span.underline==true{a.addAttribute(.underlineStyle,value:1,range:r)}}
     if label.attributedText != a{label.attributedText=a}
    }
-   if let image=item as? UIImageView{image.image=(n["symbol"] as? String).flatMap{UIImage(systemName:$0)} ?? assetProvider?(n["asset"] as? String ?? "");image.contentMode=node.fit=="stretch" ? .scaleToFill : node.fit=="fill" ? .scaleAspectFill : .scaleAspectFit}
+   if let image=item as? UIImageView{let sampling:CALayerContentsFilter=n["imageRendering"] as? String=="pixelated" ? .nearest : .linear;image.layer.magnificationFilter=sampling;image.layer.minificationFilter=sampling;image.image=(n["symbol"] as? String).flatMap{UIImage(systemName:$0)} ?? assetProvider?(n["asset"] as? String ?? "");image.contentMode=node.fit=="stretch" ? .scaleToFill : node.fit=="fill" ? .scaleAspectFill : .scaleAspectFit}
    if let b=item as? UIButton{b.setTitle(text,for:.normal);if kind=="nativeCheckbox"{b.setImage(UIImage(systemName:(n["isOn"] as? Bool ?? false) ? "checkmark.square.fill":"square"),for:.normal);b.setPreferredSymbolConfiguration(UIImage.SymbolConfiguration(pointSize:font.pointSize),forImageIn:.normal)};b.setTitleColor(color,for:.normal);b.titleLabel?.font=font;b.titleLabel?.numberOfLines=0;b.contentHorizontalAlignment=node.alignment=="left" ? .left : node.alignment=="right" ? .right : .center}
    if let f=item as? UITextField{if f.text != text && !f.isFirstResponder{f.text=text};f.font=font;f.textColor=color;f.placeholder=n["placeholder"] as? String;f.isSecureTextEntry=n["inputType"] as? String=="password";f.keyboardType=n["inputType"] as? String=="number" ? .decimalPad : .default;f.borderStyle = .none}
    if let f=item as? UITextView{if f.text != text && !f.isFirstResponder{f.text=text};f.font=font;f.textColor=color;f.textContainerInset = .zero}
@@ -113,28 +167,34 @@ final class NativeSceneController:UIViewController,UIScrollViewDelegate,UITextFi
    item.layer.zPosition=paintOrder;parent.bringSubviewToFront(item)
   }
   // UIKit hit testing follows sibling order, so it must agree with the visible layer order.
-  for entry in nodes.enumerated().sorted(by:{number($0.element,"layerOrder",CGFloat($0.offset)) < number($1.element,"layerOrder",CGFloat($1.offset))}){if let id=entry.element["id"] as? String,let item=views[id]{item.superview?.bringSubviewToFront(item)}}
+  NativeApplyProfile.measure("render.reorder"){for entry in nodes.enumerated().sorted(by:{number($0.element,"layerOrder",CGFloat($0.offset)) < number($1.element,"layerOrder",CGFloat($1.offset))}){if let id=entry.element["id"] as? String,let item=views[id]{item.superview?.bringSubviewToFront(item)}}}
   layoutNodes()
-  applying=false
+  applying=false;completedNodePass=true
  }
  override func viewDidLayoutSubviews(){super.viewDidLayoutSubviews();guard !applying,!layingOut else{return};if abs(renderedWidth-view.bounds.width)>0.5{apply(scene,animated:false)}else if layoutSize != view.bounds.size{layoutNodes()}}
  func layoutNodes(){
   guard !layingOut else{return};layingOut=true;layoutSize=view.bounds.size;defer{layingOut=false}
+  let profile=NativeApplyProfile.active,start=profile?.clock(),context=profile?.context ?? "",profilePage=scene["id"] as? String ?? ""
+  defer{if let profile=profile,let start=start{profile.scenePass(kind:"layout",page:profilePage,context:context,start:start)}}
   let scale=StudioWidthScale.factor(view.bounds.width,designWidth:number(scene,"width",393))
   for n in scene["nodes"] as? [[String:Any]] ?? [] {
-   guard let id=n["id"] as? String,let item=views[id],let constraints=layoutConstraints[id] else{continue}
-   for (index,key) in ["x","y","width","height"].enumerated(){constraints[index].constant=number(n,key)*scale}
+   guard let id=n["id"] as? String,let item=views[id] else{continue}
+   let size=CGSize(width:number(n,"width")*scale,height:number(n,"height")*scale)
+   // Setting bounds/center is defined even while rotation/scale is nonidentity.
+   // Preserve a scroll view's bounds origin (its content offset).
+   if item.bounds.size != size{item.bounds.size=size}
+   item.center=CGPoint(x:number(n,"x")*scale+size.width/2,y:number(n,"y")*scale+size.height/2)
    item.transform=CGAffineTransform(rotationAngle:number(n,"rotation") * .pi/180).scaledBy(x:number(n,"scale",1),y:number(n,"scale",1))
    item.layer.cornerRadius=number(n,"cornerRadius")*scale;item.layer.borderWidth=number(n,"strokeWidth")*scale
    if let sh=n["shadow"] as? [String:Any]{item.layer.shadowOffset=CGSize(width:number(sh,"x")*scale,height:number(sh,"y")*scale);item.layer.shadowRadius=number(sh,"blur")*scale/2}
    if let scroll=item as? UIScrollView {
-    if contentConstraints[id]==nil{let values=[scroll.contentLayoutGuide.widthAnchor.constraint(equalToConstant:1),scroll.contentLayoutGuide.heightAnchor.constraint(equalToConstant:1)];contentConstraints[id]=values;NSLayoutConstraint.activate(values)}
-    contentConstraints[id]?[0].constant=number(n,"contentWidth",number(n,"width"))*scale;contentConstraints[id]?[1].constant=number(n,"contentHeight",number(n,"height"))*scale
+    let size=CGSize(width:number(n,"contentWidth",number(n,"width"))*scale,height:number(n,"contentHeight",number(n,"height"))*scale)
+    if scroll.contentSize != size{scroll.contentSize=size}
 
    }
   }
   view.layoutIfNeeded()
-  // Apply offsets after content size and viewport constraints have settled.
+  // Apply offsets after content size and viewport geometry have settled.
   let wasApplying=applying;applying=true
   for n in scene["nodes"] as? [[String:Any]] ?? [] {
    guard let id=n["id"] as? String,let scroll=views[id] as? UIScrollView,!scroll.isDragging,!scroll.isDecelerating,Date.timeIntervalSinceReferenceDate>(localScrollUntil[id] ?? 0) else{continue}

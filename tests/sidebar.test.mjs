@@ -1,6 +1,22 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {mergedSidebar,SidebarSync} from '../sidebar-sync.mjs';
 const p={id:'official',name:'原生项目',roots:[{path:'/work/app'}]};const native={id:'native',name:'本地别名',sourcePath:'/work/app'};
 const thread={id:'t1',cwd:'/work/app',name:'官方名称',preview:'初始提示',createdAt:1,updatedAt:2,section:{id:'pins'}};
+test('新版服务缺少项目和分组接口仍显示本地项目及对话，后续不重复失败调用',async()=>{
+ const calls=[];const sync=new SidebarSync({start:async()=>{},call:async(method)=>{calls.push(method);if(method!=='thread/list')throw Error('Invalid request: unknown variant `'+method+'`');return {data:[thread]};}});
+ const catalog=await sync.read();const merged=mergedSidebar([native],[],catalog);
+ assert.equal(merged.projects[0].id,'native');assert.equal(merged.conversations[0].projectId,'native');
+ await sync.read(true);assert.equal(calls.filter(m=>m==='project/list').length,1);assert.equal(calls.filter(m=>m==='thread/list').length,2);
+});
+test('兼容降级不吞掉连接错误或必要对话接口失败',async()=>{
+ for(const failing of ['project/list','thread/list']){
+  const sync=new SidebarSync({start:async()=>{},call:async(method)=>{if(method===failing)throw Error('connection reset');return {data:[]};}});
+  await assert.rejects(sync.read(),/connection reset/);
+ }
+});
+test('缺少官方项目ID不能把其他项目的对话误归到第一个本地项目',()=>{
+ const r=mergedSidebar([native,{id:'other',name:'Other',sourcePath:'/work/other'}],[],{projects:[],sections:[],threads:[{...thread,cwd:'/work/other'},{...thread,id:'unrelated',cwd:'/elsewhere'}]});
+ assert.deepEqual(r.conversations.map(c=>c.projectId),['other',null]);
+});
 test('同一路径共用官方项目身份，不生成副本',()=>{const r=mergedSidebar([native],[],{projects:[p],threads:[thread],sections:[{id:'pins',name:'Pinned'}]});assert.equal(r.projects.length,1);assert.equal(r.projects[0].codexId,'official');assert.equal(r.projects[0].nativePreview,true);assert.equal(r.conversations[0].projectId,'native');assert.equal(r.conversations[0].pinned,true)});
 test('官方重命名优先于本地旧标题，普通代码项目可继续对话',()=>{const r=mergedSidebar([],[{id:'t1',title:'旧标题'}],{projects:[p],threads:[thread],sections:[]});assert.equal(r.conversations[0].title,'官方名称');assert.equal(r.projects[0].nativePreview,false)});
 test('从官方列表消失的已归档对话不会被本地记录复活，未发送草稿保留',()=>{const r=mergedSidebar([],[{id:'sent',hasStarted:true},{id:'draft',hasStarted:false},{id:'archived',hasStarted:false,archived:true}],{projects:[],threads:[],sections:[]});assert.deepEqual(r.conversations.map(t=>t.id),['draft'])});
@@ -16,4 +32,11 @@ test('分支对话有父对话也不能从侧栏丢弃',()=>{
 });
 test('用户强制刷新也只读索引，不阻塞在全部历史文件扫描',async()=>{
  const calls=[];const sync=new SidebarSync({start:async()=>{},call:async(method,params)=>{calls.push({method,params});return {data:[]}}});await sync.read(true);assert.equal(calls.find(c=>c.method==='thread/list').params.useStateDbOnly,true);
+});
+test('可选接口降级必须显示未同步警告，正常服务没有警告',async()=>{
+ for(const unsupported of [true,false]){
+ const rpc={start:async()=>{},call:async(method)=>{if(unsupported&&method!=='thread/list')throw Error('unknown method');return {data:[]}}};
+ const sync=new SidebarSync(rpc),catalog=await sync.read();const merged=mergedSidebar([],[],catalog);
+ assert.equal(merged.syncWarnings.length,unsupported?2:0);
+ }
 });

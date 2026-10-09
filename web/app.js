@@ -11,12 +11,12 @@ let lastNativeLayout='';
 window.reportNativeLayout = (force=false) => {
   if (!nativeHost) return;
   const bounds = el => { const r = el.getBoundingClientRect(); return {x:r.x,y:r.y,width:r.width,height:r.height}; };
-  const layout={ action:'layout', center:bounds(document.querySelector('.canvas-layout')), left:bounds(document.querySelector('.sidebar')), right:bounds(document.querySelector('.chat-panel')), leftMode:leftPanelMode,leftNative:['library','tools'].includes(leftPanelMode),rightNative:rightPanelMode==='properties',preview:!!project()&&project().nativePreview!==false,modal:!!window.imageViewerActive||!!window.annotationActive||$('dialog').open||!$('sidebar-menu').classList.contains('hidden') };
+  const layout={ action:'layout', center:bounds(document.querySelector('.canvas-layout')), left:bounds(document.querySelector('.sidebar')), right:bounds(document.querySelector('.chat-panel')), leftMode:leftPanelMode,leftNative:['library','tools'].includes(leftPanelMode),rightNative:rightPanelMode==='properties',preview:workbenchOn(),modal:!!window.imageViewerActive||!!window.annotationActive||$('dialog').open||!$('sidebar-menu').classList.contains('hidden') };
   const folderDrop=$('project-folder-drop');layout.composerDrop=layout.modal?null:bounds(document.querySelector('.composer-wrap'));layout.projectDrop=$('dialog').open&&folderDrop?{...bounds(folderDrop),requestId:folderDrop.dataset.requestId}:null;
   const key=JSON.stringify(layout);if(force===true||key!==lastNativeLayout){lastNativeLayout=key;nativeMessage(layout)}
 };
 window.setClientPanel = (side, mode) => {
-  if (project()?.nativePreview!==true && (['library','tools'].includes(mode)||mode==='properties')) {
+  if (!workbenchOn() && (['library','tools'].includes(mode)||mode==='properties')) {
     toast('此 Codex 项目尚未导入手机工作台，可使用对话编辑项目文件');
     mode=side==='left'?'projects':'chat';
   }
@@ -59,6 +59,10 @@ async function api(url, body) {
   const response = await fetch(url, { method: body === undefined ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json', 'X-Client-Token': token }, body: body === undefined ? undefined : JSON.stringify(body) });
   const result = await response.json(); if (!response.ok) throw new Error(result.error || `请求失败 (${response.status})`); return result;
 }
+let workbenchBusy=false;
+let closeWorkbenchResolve=null;
+window.workbenchCloseReady=ok=>{closeWorkbenchResolve?.(ok);closeWorkbenchResolve=null};
+const workbenchOn=()=>project()?.workbenchEnabled===true;
 const previewId=()=>project()?.nativeProjectId||state.project;
 const studio = (url, body) => {const mapped=body?{...body}:body;if(mapped?.id===state.project)mapped.id=previewId();if(mapped?.projectID===state.project)mapped.projectID=previewId();return api('/studio'+url,mapped)};
 let toastTimer;
@@ -95,11 +99,11 @@ function renderSidebar() {
   }}));
   const p=project(),c=currentConversation();$('project-title').textContent=p?.name||'工作台';$('canvas-title').textContent=p?.name||'你的 App，在这里成形';
   $('thread-title').textContent=c?.title||'新的开始';$('composer-context').textContent=c?.title||'新对话';
-  const nativePreview=!!p&&p.nativePreview!==false;document.documentElement.classList.toggle('code-project',!nativePreview);
+  const nativePreview=workbenchOn();$('connect-workbench').hidden=!!p?.nativePreview;$('workbench-hint').textContent=p?.nativePreview?'工作台已关闭，点击上方「开启工作台」加载手机预览。对话仍可正常使用。':'在下方继续对话，修改会保存到此项目。';if(!nativePreview&&!nativeHost&&$('html-preview').getAttribute('src')!=='about:blank')$('html-preview').src='about:blank';const toggle=$('workbench-toggle');toggle.disabled=!p||p.nativePreview===false||workbenchBusy;toggle.textContent=workbenchBusy?'切换中…':nativePreview?'关闭工作台':'开启工作台';toggle.setAttribute('aria-checked',String(nativePreview));document.documentElement.classList.toggle('code-project',!nativePreview);
   if(!nativePreview){if(['library','tools'].includes(leftPanelMode))window.setClientPanel('left','projects');if(rightPanelMode==='properties')window.setClientPanel('right','chat');}
   $('code-project-title').textContent=p?.name||c?.title||'Codex 对话';$('code-project-path').textContent=p?.sourcePath||c?.sourcePath||'';
-  $('sidebar-sync-state').textContent='与 Codex 同步';
-  icons();if(nativeHost&&nativePreview)nativeMessage({action:'project',id:previewId()});window.reportNativeLayout();
+  renderSyncStatus();
+  icons();window.reportNativeLayout();if(nativeHost&&nativePreview)nativeMessage({action:'project',id:previewId()});
 }
 function closeSidebarMenu(){$('sidebar-menu').classList.add('hidden');window.reportNativeLayout()}
 function showSidebarMenu(anchor,entries){const menu=$('sidebar-menu');menu.innerHTML=entries.map((entry,i)=>`<button type="button" role="menuitem" data-menu-index="${i}">${icon(entry.icon)}<span>${escape(entry.label)}</span></button>`).join('');menu.classList.remove('hidden');const r=anchor.getBoundingClientRect();menu.style.left=Math.min(r.left,innerWidth-250)+'px';menu.style.top=Math.min(r.bottom+4,innerHeight-menu.offsetHeight-12)+'px';menu.querySelectorAll('button').forEach(b=>b.onclick=attempt(async()=>{closeSidebarMenu();await entries[Number(b.dataset.menuIndex)].run()}));icons();window.reportNativeLayout();menu.querySelector('button')?.focus()}
@@ -209,7 +213,11 @@ function renderMessages(immediate = false) {
     if (bottom || immediate) el.scrollTop = el.scrollHeight;else el.scrollTop=scrollTop; icons();
   }; if (immediate) draw(); else renderTimer = setTimeout(draw, 65);
 }
+const fetchedTurnByThread=new Map();
+let sidebarSyncWarnings=[];
+function renderSyncStatus(){const el=$('sidebar-sync-state');el.textContent=sidebarSyncWarnings.length?'部分内容未同步':'与 Codex 同步';el.title=sidebarSyncWarnings.join('；');}
 function loadHistory(thread) {
+  fetchedTurnByThread.set(thread.id,thread.turns?.at(-1)?.id||'');
   state.items.clear();delete state.remoteRunning[thread.id];
   for (const turn of thread?.turns || []) {
     for (const item of turn.items || []) state.items.set(item.id, {...item,_turnId:turn.id});
@@ -228,7 +236,7 @@ async function refreshRegistry(force=false,light=false) {
   if(state.thread&&!currentConversation()){state.thread=null;state.items.clear();renderMessages(true)}
   const key=JSON.stringify([state.projects,state.conversations,state.running,state.project,state.thread]);
   if(key!==registryRenderKey){registryRenderKey=key;renderSidebar();updateRunning();}
-  $('sidebar-sync-state').textContent='与 Codex 同步';return value;
+  sidebarSyncWarnings=value.syncWarnings||[];renderSyncStatus();return value;
  })().finally(()=>{registryRefresh=null});return registryRefresh;
 }
 let sidebarEventTimer;
@@ -405,7 +413,7 @@ let refreshBusy = false;
 async function refreshEditor(force = false) {
   // The embedded native editor owns preview state; do not fetch and render a second hidden editor.
   if(nativeHost){if(force)renderSidebar();return;}
-  if (!state.project || refreshBusy) return; refreshBusy = true;
+  if (!state.project || !workbenchOn() || refreshBusy) return; refreshBusy = true;
   try {
     const s = await studio('/status'); state.editing = s.editing;
     window.receivePreviewMode(!s.editing);
@@ -474,6 +482,7 @@ window.addEventListener('message', attempt(async event => {
 function openExternal(url) { const parsed = new URL(url); if (!['https:', 'http:'].includes(parsed.protocol)) throw new Error('只支持打开网页链接'); if (window.webkit?.messageHandlers?.native) window.webkit.messageHandlers.native.postMessage({ action: 'openURL', url: parsed.href }); else window.open(parsed.href, '_blank', 'noopener'); }
 let frameURL = null, frameFailures = 0;
 async function pollFrame() {
+  if(!workbenchOn()||document.hidden){setTimeout(pollFrame,1000);return}
   try {
     const response = await fetch('/api/frame', { headers: { 'X-Client-Token': token } }); if (!response.ok) throw new Error('等待模拟器');
     const next = URL.createObjectURL(await response.blob()), previous = frameURL; frameURL = next; $('ios-frame').src = next; $('ios-frame').onload = () => { if (previous) URL.revokeObjectURL(previous); };
@@ -482,7 +491,7 @@ async function pollFrame() {
   setTimeout(pollFrame, document.hidden ? 1500 : 150);
 }
 let inputSession = null, inputConnecting = false, inputQueue = [], inputSending = false, pointerDown = false;
-async function connectInput() { if (state.editing || !state.project || inputConnecting || inputSession) return; inputConnecting = true; try { const result = await studio('/ios-input-connect', { id: state.project }); inputSession = result.session; } catch (error) { toast(error.message, true); } finally { inputConnecting = false; } }
+async function connectInput() { if (!workbenchOn() || state.editing || !state.project || inputConnecting || inputSession) return; inputConnecting = true; try { const result = await studio('/ios-input-connect', { id: state.project }); inputSession = result.session; } catch (error) { toast(error.message, true); } finally { inputConnecting = false; } }
 async function disconnectInput() { const old = inputSession; inputSession = null; inputQueue = []; pointerDown = false; if (old) await studio('/ios-input-disconnect', { session: old }).catch(() => {}); }
 function input(event) { if (!inputSession) return; if (event.kind === 'move' && inputQueue.at(-1)?.kind === 'move') inputQueue[inputQueue.length - 1] = event; else inputQueue.push(event); pumpInput(); }
 async function pumpInput() {
@@ -512,7 +521,7 @@ async function boot() {
     state.thread = state.conversations.find(c => c.id === s.registry.selectedThread)?.id || null;if(state.thread)state.project=currentConversation().projectId; state.sequence = s.sequence;
     for (const request of s.pendingRequests) state.requests.set(String(request.id), request);
     connectEvents();
-    if (state.project && project()?.nativePreview && s.status.active !== previewId()) await api('/api/project/activate', { id: state.project });
+    if (state.project && workbenchOn() && s.status.active !== previewId()) await api('/api/project/activate', { id: state.project });
     if (state.thread) loadHistory((await api('/api/history?id=' + state.thread)).thread);
     renderSidebar(); renderRequests(); await refreshEditor(true);
   } catch (error) { toast(error.message, true); }
@@ -526,7 +535,7 @@ async function boot() {
   addEventListener('focus',scheduleSidebarSync);document.addEventListener('visibilitychange',()=>{if(!document.hidden)scheduleSidebarSync()});
 }
 window.nativeProjectChanged=async id=>{
-  if(!nativeHost || !id || id===previewId())return;
+  if(!nativeHost || !workbenchOn() || !id || id===previewId())return;
   try{await api('/api/project/activate',{id});state.project=id;state.thread=null;state.selected=null;state.items.clear();await refreshRegistry();await refreshEditor();renderMessages(true);renderRequests()}
   catch(error){toast(error.message,true);if(state.project)nativeMessage({action:'project',id:previewId()})}
 };
@@ -574,9 +583,11 @@ async function syncConversationTail(){
   if(!id||document.hidden||$('dialog').open||state.switching||state.pendingSend||tailSyncBusy)return;
   tailSyncBusy=true;const startSequence=state.sequence;
   try{
-    const value=await api('/api/history?id='+encodeURIComponent(id)+'&tail=1'+(lastTailThread===id?'&revision='+encodeURIComponent(lastTailSignature):''));
+    const value=await api('/api/history?id='+encodeURIComponent(id)+'&tail=1&afterTurn='+encodeURIComponent(fetchedTurnByThread.get(id)||'')+(lastTailThread===id?'&revision='+encodeURIComponent(lastTailSignature):''));
     if(state.thread!==id||state.switching||state.sequence!==startSequence)return;
     if(value.unchanged)return;
+    if(value.thread.historyReset)state.items.clear();
+    fetchedTurnByThread.set(id,value.thread.turns?.at(-1)?.id||'');
     const active=state.running[id];if(active&&value.thread.turns.some(t=>t.id===active&&['completed','failed','interrupted'].includes(t.status)))delete state.running[id];
     lastTailThread=id;lastTailSignature=value.revision;delete state.remoteRunning[id];
     for(const turn of value.thread.turns||[]){for(const item of turn.items||[])state.items.set(item.id,{...item,_turnId:turn.id});if(turn===value.thread.turns.at(-1)&&turn.status==='inProgress')state.remoteRunning[id]=turn.id;if(turn.error)state.items.set('error:'+turn.id,{type:'clientError',text:turn.error.message})}
@@ -659,7 +670,7 @@ const copyViewer=document.createElement('button');copyViewer.type='button';copyV
 for(const container of [$('attachments'),$('messages')])container.addEventListener('contextmenu',e=>{const img=e.target.closest('img');if(!img)return;e.preventDefault();showSidebarMenu(img,[{label:'复制图片',icon:'copy',run:()=>copyWorkbenchImage(img.src)}])});
 
 window.receivePreviewMode=running=>{state.editing=!running;for(const [id,selected] of [['top-edit-mode',!running],['top-run-mode',running],['edit-mode',!running],['run-mode',running]]){$(id).classList.toggle('selected',selected);$(id).setAttribute('aria-pressed',String(selected))}};
-for(const [id,running] of [['top-edit-mode',false],['top-run-mode',true]])$(id).onclick=attempt(async()=>{if(!project()||project().nativePreview===false){toast('请先选择已接入工作台的项目');return}if(nativeHost)nativeMessage({action:'previewMode',running});else await setMode(!running)});
+for(const [id,running] of [['top-edit-mode',false],['top-run-mode',true]])$(id).onclick=attempt(async()=>{if(!project()||!workbenchOn()){toast('请先选择已接入工作台的项目');return}if(nativeHost)nativeMessage({action:'previewMode',running});else await setMode(!running)});
 
 // Keep ordinary typing and IME input free of mode-switch shortcuts.
 document.addEventListener('keydown',event=>{
@@ -677,7 +688,7 @@ $('prompt').addEventListener('keydown',event=>{
 });
 window.receiveClipboardText=text=>{const input=$('prompt');input.setRangeText(text,input.selectionStart,input.selectionEnd,'end');input.dispatchEvent(new Event('input'));};
 
-function topIOSAction(action){if(!project()||project().nativePreview===false){toast('请先选择已接入工作台的项目');return}if(!nativeHost){toast('请在桌面工作台使用，或通过后台镜像操作');return}nativeMessage({action:'iosToolbar',command:action})}
+function topIOSAction(action){if(!project()||!workbenchOn()){toast('请先选择已接入工作台的项目');return}if(!nativeHost){toast('请在桌面工作台使用，或通过后台镜像操作');return}nativeMessage({action:'iosToolbar',command:action})}
 $('top-run-ios').onclick=()=>topIOSAction('run');$('top-link-ios').onclick=()=>topIOSAction('link');
 $('top-sync-menu').onclick=()=>showSidebarMenu($('top-sync-menu'),[{label:'检查并修复同步',icon:'refresh-cw',run:()=>topIOSAction('repair')},{label:'查看同步详情',icon:'info',run:()=>topIOSAction('details')}]);
 window.receiveSyncStatus=text=>{$('top-sync-menu').textContent=(text||'同步状态')+' ▾';$('top-sync-menu').title=(text||'同步状态')+' · 点击检查并修复同步';};
@@ -697,3 +708,13 @@ document.addEventListener('keydown',event=>{
  event.preventDefault();event.stopPropagation();nativeMessage({action:'editorTool',tool});
 },true);
 
+$('workbench-toggle').onclick=attempt(async()=>{
+ if(workbenchBusy||!project())return;
+ const id=state.project,enabled=!workbenchOn();workbenchBusy=true;renderSidebar();
+ try{
+  if(!enabled&&nativeHost){const saved=await new Promise(resolve=>{const timer=setTimeout(()=>{closeWorkbenchResolve=null;resolve(false)},5000);closeWorkbenchResolve=ok=>{clearTimeout(timer);resolve(ok)};nativeMessage({action:'prepareWorkbenchClose'})});if(!saved)throw Error('编辑草稿未能保存，工作台保持开启')}
+  await disconnectInput();await api('/api/project/workbench',{id,enabled});
+  await refreshRegistry();state.editor=null;renderSidebar();await refreshEditor(true);
+  toast(enabled?'工作台已开启，正在加载手机预览':'工作台已关闭，此项目模拟器已停止');
+ }finally{workbenchBusy=false;await refreshRegistry().catch(()=>{});renderSidebar()}
+});

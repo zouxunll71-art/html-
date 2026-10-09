@@ -30,7 +30,7 @@ final class ClientHostController:UIViewController,WKScriptMessageHandler,WKNavig
  var mirrorTimer:Timer?
  var mirrorBusy=false
  @objc func saveWorkbenchLayout(){guard embedded,!editor.historyGesture else{return};editor.save()}
- @objc func toggleWorkbenchMode(){guard embedded else{return};editor.switchRunMode()}
+ @objc func toggleWorkbenchMode(){guard embedded,editor.clientWorkbenchEnabled else{return};editor.switchRunMode()}
  override var keyCommands:[UIKeyCommand]?{let paste=UIKeyCommand(title:"粘贴",action:#selector(pasteClipboardShortcut),input:"v",modifierFlags:.command);paste.wantsPriorityOverSystemBehavior=true;let mode=UIKeyCommand(title:"运行 / 编辑",action:#selector(toggleWorkbenchMode),input:"w",modifierFlags:.command);mode.wantsPriorityOverSystemBehavior=true;let save=UIKeyCommand(title:"保存布局",action:#selector(saveWorkbenchLayout),input:"s",modifierFlags:.command);save.wantsPriorityOverSystemBehavior=true;return [paste,mode,save]}
  @objc func pasteClipboardShortcut(){web.evaluateJavaScript("document.activeElement?.id === 'prompt'"){[weak self] value,_ in
   guard let self=self else{return};guard value as? Bool == true else{self.web.paste(nil);return}
@@ -63,11 +63,26 @@ final class ClientHostController:UIViewController,WKScriptMessageHandler,WKNavig
    let encoded=String(data:try! JSONSerialization.data(withJSONObject:[text]),encoding:.utf8)!
    web.evaluateJavaScript("(()=>{const e=document.activeElement;if(e&&(e.tagName==='INPUT'||e.tagName==='TEXTAREA')){e.value=\(encoded)[0];e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}))}})()",completionHandler:nil);return
   }
+  let measure=(command["text"] as? String ?? "").hasPrefix("studio-perf:") ? (command["text"] as? String ?? ""):""
+  if kind=="key",measure.hasPrefix("studio-perf:geometry:"){
+   func rect(_ value:CGRect)->[String:Double]{["x":Double(value.minX),"y":Double(value.minY),"width":Double(value.width),"height":Double(value.height)]}
+   let ios=editor.left.convert(editor.left.screenRect,to:view),browser=editor.web.convert(editor.web.bounds,to:view)
+   var geometry:[String:Any] = ["type":"performanceGeometry","tag":measure,"viewBounds":rect(view.bounds),"viewInWindow":rect(view.convert(view.bounds,to:nil)),"ios":rect(ios),"browser":rect(browser),"screenScale":Double(view.window?.screen.scale ?? traitCollection.displayScale)]
+   if let window=view.window{geometry["windowBounds"]=rect(window.bounds);geometry["windowFrame"]=rect(window.frame)}
+   editor.web.evaluateJavaScript("(()=>{const e=document.getElementById('app-viewport');if(!e)return null;const r=e.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height,innerWidth,innerHeight,dpr:devicePixelRatio}})()"){value,_ in
+    if let viewport=value as? [String:Any]{geometry["htmlViewport"]=viewport}
+    WorkbenchPerformance.report(geometry)
+   };return
+  }
   guard let hit=view.hitTest(point,with:nil) else{return}
   var ancestor:UIView?=hit
   while let current=ancestor{
    if let browser=current as? WKWebView{
     let p=browser.convert(point,from:view),dy=command["dy"] as? Double ?? 0
+    if !measure.isEmpty{WorkbenchPerformance.inputMarker(measure,side:"html")}
+    if !measure.isEmpty,let data=try? JSONSerialization.data(withJSONObject:["tag":measure,"start":Date().timeIntervalSince1970*1000,"hostMonotonicMs":ProcessInfo.processInfo.systemUptime*1000]),let json=String(data:data,encoding:.utf8){
+     browser.evaluateJavaScript("window.__studioPerformance={...\(json),route:typeof payload==='undefined'?null:payload?.page?.id}",completionHandler:nil)
+    }
     browser.evaluateJavaScript("(()=>{let e=document.elementFromPoint(\(p.x),\(p.y));if(!e)return;if('\(kind)'==='scroll'){while(e&&e.scrollHeight<=e.clientHeight)e=e.parentElement;(e||document.scrollingElement).scrollBy(0,\(dy))}else{e.focus?.();e.click?.()}})()",completionHandler:nil);return
    }
    if kind=="click",let canvas=current as? ClientCanvasScrollView,hit === canvas{canvas.onBackgroundTap?();return}
@@ -76,7 +91,7 @@ final class ClientHostController:UIViewController,WKScriptMessageHandler,WKNavig
    if kind=="click",let field=current as? UITextField{field.becomeFirstResponder();return}
    if kind=="click",let button=current as? UIButton{button.sendActions(for:.touchUpInside);return}
    if kind=="click",let segment=current as? UISegmentedControl{let p=segment.convert(point,from:view);segment.selectedSegmentIndex=min(segment.numberOfSegments-1,max(0,Int(p.x/segment.bounds.width*CGFloat(segment.numberOfSegments))));segment.sendActions(for:.valueChanged);return}
-   if let surface=current as? DeviceSurface,kind=="click"{let p=surface.logical(surface.convert(point,from:view));if surface.operate{if surface === editor.left && editor.simulatorInput.ready{surface.onPointer?("down",p);surface.onPointer?("up",p)}else{surface.onTap?(p)}}else{surface.selected=surface.hit(p)?.id;surface.onSelect?(surface.selected)};return}
+   if let surface=current as? DeviceSurface,kind=="click"{let p=surface.logical(surface.convert(point,from:view));if surface.operate{if surface === editor.left && editor.simulatorInput.ready{if !measure.isEmpty{WorkbenchPerformance.shared.begin(measure,image:editor.iosFrames.currentImageForProbe())};surface.onPointer?("down",p);surface.onPointer?("up",p)}else{surface.onTap?(p)}}else{surface.selected=surface.hit(p)?.id;surface.onSelect?(surface.selected)};return}
    ancestor=current.superview
   }
  }
@@ -85,7 +100,11 @@ final class ClientHostController:UIViewController,WKScriptMessageHandler,WKNavig
   var request=URLRequest(url:URL(string:"http://127.0.0.1:18777/api/mirror/demand")!);request.setValue(Bridge.shared.token,forHTTPHeaderField:"x-studio-token");request.timeoutInterval=3
   URLSession.shared.dataTask(with:request){[weak self] data,_,_ in DispatchQueue.main.async{
    guard let self=self else{return};guard let data=data,let response=try? JSONSerialization.jsonObject(with:data) as? [String:Any],response["active"] as? Bool==true else{self.mirrorBusy=false;return}
-   for command in response["commands"] as? [[String:Any]] ?? []{self.applyMirrorCommand(command)}
+   let commands=response["commands"] as? [[String:Any]] ?? []
+   for command in commands{self.applyMirrorCommand(command)}
+   // A diagnostic click must be allowed to paint before taking the expensive
+   // full-window evidence snapshot. The next regular mirror tick captures it.
+   if commands.contains(where:{($0["text"] as? String ?? "").hasPrefix("studio-perf:")}){self.mirrorBusy=false;return}
    let config=WKSnapshotConfiguration();config.afterScreenUpdates=false
    self.web.takeSnapshot(with:config){[weak self] overlay,_ in
     guard let self=self else{return};let format=UIGraphicsImageRendererFormat();format.scale=1
@@ -161,13 +180,16 @@ final class ClientHostController:UIViewController,WKScriptMessageHandler,WKNavig
  func userContentController(_ userContentController:WKUserContentController,didReceive message:WKScriptMessage){
   guard message.frameInfo.isMainFrame,let body=message.body as? [String:Any] else{return}
   switch body["action"] as? String {
+  case "prepareWorkbenchClose":
+   let saved = !embedded || editor.journalEditorDraft()
+   web.evaluateJavaScript("window.workbenchCloseReady?.(\(saved))",completionHandler:nil)
   case "iosToolbar":
-   guard embedded,editor.project != nil else{return}
+   guard embedded,editor.clientWorkbenchEnabled,editor.project != nil else{return}
    switch body["command"] as? String{case "run":editor.runIOS();case "link":editor.copyAllPages();case "repair":editor.repairSynchronization();case "details":editor.showSyncDetails();default:break}
   case "editorTool":
-   guard embedded,let tool=body["tool"] as? String else{return};editor.selectToolShortcut(tool)
+   guard embedded,editor.clientWorkbenchEnabled,let tool=body["tool"] as? String else{return};editor.selectToolShortcut(tool)
   case "previewMode":
-   embed();guard let running=body["running"] as? Bool else{return};editor.mode.selectedSegmentIndex=running ? 1:0;editor.toggleRun()
+   guard embedded,editor.clientWorkbenchEnabled,let running=body["running"] as? Bool else{return};editor.mode.selectedSegmentIndex=running ? 1:0;editor.toggleRun()
   case "pasteClipboard":
    if web.pasteImage?() != true,let text=UIPasteboard.general.string,let data=try? JSONSerialization.data(withJSONObject:[text]),let json=String(data:data,encoding:.utf8){web.evaluateJavaScript("window.receiveClipboardText?.(\(json)[0])",completionHandler:nil)}
   case "copyImage":
@@ -191,22 +213,31 @@ final class ClientHostController:UIViewController,WKScriptMessageHandler,WKNavig
    if let drop=body["projectDrop"] as? [String:Any],let request=drop["requestId"] as? String {
     folderRequest=request;folderDrop.frame=rect(drop.filter{$0.key != "requestId"});folderDrop.isHidden=false
    }else{folderRequest=nil;folderDrop.isHidden=true}
-   embed();let center=rect(body["center"]),left=rect(body["left"]),right=rect(body["right"])
+   let wantsPreview=body["preview"] as? Bool ?? false
+   if wantsPreview{embed()}
+   guard embedded else{return}
+   if editor.clientWorkbenchEnabled != wantsPreview{
+    editor.clientWorkbenchEnabled=wantsPreview
+    if wantsPreview{editor.iosFrames.start();editor.web.load(URLRequest(url:URL(string:"http://127.0.0.1:18777/studio/web")!));editor.observedRevision = -1;editor.pollRoute()}
+    else{_ = editor.journalEditorDraft();editor.suspendSourcePreview();editor.releaseSimulatorTouches();editor.simulatorInput.stop();editor.iosFrames.stop();editor.androidFrames.stop();editor.scrollRelay.cancel();editor.web.stopLoading();editor.web.loadHTMLString("",baseURL:nil);currentProject=""}
+   }
+   let center=rect(body["center"]),left=rect(body["left"]),right=rect(body["right"])
    let resized=editor.view.frame != center || leftPanel.frame != left || rightPanel.frame != right
    editor.view.frame=center;leftPanel.frame=left;rightPanel.frame=right
    leftPanel.isHidden=body["leftNative"] as? Bool != true;rightPanel.isHidden=body["rightNative"] as? Bool != true
    editor.sidebar.isHidden=body["leftMode"] as? String != "library";editor.clientToolsScroll.isHidden=body["leftMode"] as? String != "tools"
-   let preview=body["preview"] as? Bool ?? true;editor.view.isHidden = !preview
+   let preview=body["preview"] as? Bool ?? false;editor.view.isHidden = !preview
    web.modal=body["modal"] as? Bool ?? false;web.passthrough=preview ? [web.convert(center,from:view)]:[]
    if !leftPanel.isHidden{web.passthrough.append(web.convert(left,from:view))};if !rightPanel.isHidden{web.passthrough.append(web.convert(right,from:view))}
    if resized{editor.view.setNeedsLayout();editor.view.layoutIfNeeded()}
    view.bringSubviewToFront(web);view.bringSubviewToFront(folderDrop)
   case "project":
+   embed()
    guard let id=body["id"] as? String,currentProject != id,!projectLoading else{return};projectLoading=true
-   Bridge.shared.request("/projects"){[weak self] result in guard let self=self else{return};self.projectLoading=false;if case .success(let data)=result,let projects=try? JSONDecoder().decode([StudioProject].self,from:data),let p=projects.first(where:{$0.id==id}){self.currentProject=id;self.editor.useProject(p)}}
+   Bridge.shared.request("/project?id="+id){[weak self] result in guard let self=self else{return};self.projectLoading=false;guard self.editor.clientWorkbenchEnabled else{return};if case .success(let data)=result,let p=try? JSONDecoder().decode(StudioProject.self,from:data),p.id==id{self.currentProject=id;self.editor.useProject(p)}}
   case "zoom":
    if let zoom=body["value"] as? Double{editor.clientZoom=CGFloat(min(1.5,max(0.35,zoom)))}
-   editor.clientFit=body["fit"] as? Bool ?? false;editor.view.setNeedsLayout()
+   editor.clientFit=body["fit"] as? Bool ?? false;if embedded{editor.view.setNeedsLayout()}
   case "openURL":
    if let raw=body["url"] as? String,let url=URL(string:raw),["https","http"].contains(url.scheme ?? ""){UIApplication.shared.open(url)}
   default:break

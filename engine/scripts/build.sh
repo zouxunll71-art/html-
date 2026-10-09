@@ -14,6 +14,8 @@ if [[ "$build_legacy" == "1" ]]; then
 fi
 python3 scripts/make_project.py . HTMLNativeRuntime Runtime Shared
 xcrun clang -fobjc-arc scripts/ios_frames.m -framework Foundation -framework IOSurface -framework CoreImage -framework ImageIO -framework CoreGraphics -o build/ios-frames
+PYTHONPATH=bridge python3 -c 'import json;from pathlib import Path;from local_surface import LocalSurface;root=Path.cwd();LocalSurface(root,json.loads((root/"bridge/config.json").read_text()))._build()'
+xcrun clang -O2 scripts/preview_png.c -lz -o build/preview-png
 xcrun clang -fobjc-arc scripts/ios_input.m -framework AppKit -framework Foundation -framework CoreGraphics -o build/ios-input
 if [[ "$build_legacy" == "1" ]]; then
   xcodebuild -project HTMLNativeStudio.xcodeproj -scheme HTMLNativeStudio -configuration Debug -destination 'platform=macOS,variant=Mac Catalyst' -derivedDataPath build/studio CODE_SIGNING_ALLOWED=NO build > artifacts/studio-build.log 2>&1

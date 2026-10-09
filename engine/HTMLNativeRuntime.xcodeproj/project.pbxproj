@@ -1,0 +1,19 @@
+// !$*UTF8*$!
+{ archiveVersion = 1; classes = {}; objectVersion = 77; objects = {
+A1 = { isa = PBXProject; buildConfigurationList = C1; compatibilityVersion = "Xcode 16.0"; mainGroup = G1; productRefGroup = G2; targets = (T1); attributes = { LastUpgradeCheck = 2600; }; };
+G1 = { isa = PBXGroup; children = (F0,F1,G2); sourceTree = "<group>"; };
+F0 = { isa = PBXFileSystemSynchronizedRootGroup; path = "Runtime"; sourceTree = "<group>"; };
+F1 = { isa = PBXFileSystemSynchronizedRootGroup; path = "Shared"; sourceTree = "<group>"; };
+G2 = { isa = PBXGroup; children = (P1); name = Products; sourceTree = "<group>"; };
+P1 = { isa = PBXFileReference; explicitFileType = wrapper.application; path = HTMLNativeRuntime.app; sourceTree = BUILT_PRODUCTS_DIR; };
+T1 = { isa = PBXNativeTarget; name = HTMLNativeRuntime; productName = HTMLNativeRuntime; productReference = P1; productType = "com.apple.product-type.application"; buildConfigurationList = C2; buildPhases = (B1,B2,B3); dependencies = (); buildRules = (); fileSystemSynchronizedGroups = (F0,F1); };
+B1 = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+B2 = { isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+B3 = { isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+C1 = { isa = XCConfigurationList; buildConfigurations = (D1,R1); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+D1 = { isa = XCBuildConfiguration; name = Debug; buildSettings = { SDKROOT = iphoneos; IPHONEOS_DEPLOYMENT_TARGET = 17.0; SWIFT_VERSION = 5.0; CLANG_ENABLE_MODULES = YES; SWIFT_OPTIMIZATION_LEVEL = "-O"; }; };
+R1 = { isa = XCBuildConfiguration; name = Release; buildSettings = { SDKROOT = iphoneos; IPHONEOS_DEPLOYMENT_TARGET = 17.0; SWIFT_VERSION = 5.0; CLANG_ENABLE_MODULES = YES; SWIFT_OPTIMIZATION_LEVEL = "-O"; }; };
+C2 = { isa = XCConfigurationList; buildConfigurations = (D2,R2); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+D2 = { isa = XCBuildConfiguration; name = Debug; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = local.htmlnative.HTMLNativeRuntime; PRODUCT_NAME = "$(TARGET_NAME)"; GENERATE_INFOPLIST_FILE = YES; INFOPLIST_KEY_UILaunchScreen_Generation = YES; INFOPLIST_KEY_UIApplicationSceneManifest_Generation = NO; INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoads = YES; INFOPLIST_KEY_NSLocalNetworkUsageDescription = "连接本机 HTML Native Studio 服务"; TARGETED_DEVICE_FAMILY = "1,2"; SUPPORTS_MACCATALYST = YES; DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER = NO; CODE_SIGN_IDENTITY = "-"; CODE_SIGN_STYLE = Automatic; ENABLE_USER_SCRIPT_SANDBOXING = NO; ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = NO; SWIFT_OPTIMIZATION_LEVEL = "-O"; }; };
+R2 = { isa = XCBuildConfiguration; name = Release; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = local.htmlnative.HTMLNativeRuntime; PRODUCT_NAME = "$(TARGET_NAME)"; GENERATE_INFOPLIST_FILE = YES; INFOPLIST_KEY_UILaunchScreen_Generation = YES; INFOPLIST_KEY_UIApplicationSceneManifest_Generation = NO; INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoads = YES; INFOPLIST_KEY_NSLocalNetworkUsageDescription = "连接本机 HTML Native Studio 服务"; TARGETED_DEVICE_FAMILY = "1,2"; SUPPORTS_MACCATALYST = YES; DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER = NO; CODE_SIGN_IDENTITY = "-"; CODE_SIGN_STYLE = Automatic; ENABLE_USER_SCRIPT_SANDBOXING = NO; ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = NO; SWIFT_OPTIMIZATION_LEVEL = "-O"; }; };
+}; rootObject = A1; }

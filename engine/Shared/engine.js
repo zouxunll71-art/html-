@@ -2,6 +2,7 @@
 (function(global){'use strict';
 const clone=x=>JSON.parse(JSON.stringify(x)),get=(o,p)=>String(p||'').split('.').filter(Boolean).reduce((v,k)=>v==null?undefined:v[k],o);
 function set(o,p,v){const keys=p.split('.');if(keys.some(k=>['__proto__','constructor','prototype'].includes(k)))throw Error('Unsafe state path');let t=o;keys.slice(0,-1).forEach(k=>{if(t[k]==null)t[k]={};t=t[k]});t[keys[keys.length-1]]=clone(v)}
+function withDefaults(value,defaults){const out=clone(value);if(out&&defaults&&typeof out==='object'&&!Array.isArray(out)&&typeof defaults==='object'&&!Array.isArray(defaults)){for(const key of Object.keys(defaults)){if(!Object.prototype.hasOwnProperty.call(out,key))out[key]=clone(defaults[key]);else out[key]=withDefaults(out[key],defaults[key])}}return out}
 function translate(c,key,args={}){const table=c.localization?.tables?.[c.locale]||c.localization?.tables?.en;if(!table||!(key in table))throw Error('Missing localization key '+key);return table[key].replace(/\{([A-Za-z][A-Za-z0-9_]*)\}/g,(_,name)=>{if(!(name in args))throw Error('Missing localization argument '+name+' for '+key);return String(args[name])})}
 function expr(v,c){if(Array.isArray(v))return v.map(x=>expr(x,c));if(!v||typeof v!=='object')return v;
  if('t'in v)return translate(c,v.t,expr(v.args||{},c));
@@ -14,6 +15,29 @@ function expr(v,c){if(Array.isArray(v))return v.map(x=>expr(x,c));if(!v||typeof 
   let result;
   switch(v.op){case 'mul':result=ns.reduce((x,y)=>x*y,1);break;case 'div':if(ns[1]===0)throw Error('Division by zero');result=ns[0]/ns[1];break;case 'number':result=ns[0];break;case 'min':result=Math.min(...ns);break;case 'max':result=Math.max(...ns);break;case 'abs':result=Math.abs(ns[0]);break;case 'sqrt':result=Math.sqrt(ns[0]);break;case 'atan2':result=Math.atan2(ns[0],ns[1])*180/Math.PI;break;case 'round':case 'format':{const places=ns[1]??0;if(!Number.isInteger(places)||places<0||places>10)throw Error('Decimal places must be 0-10');result=v.op==='format'?ns[0].toFixed(places):Number(ns[0].toFixed(places));break;}}
   if(typeof result==='number'&&!Number.isFinite(result))throw Error('Non-finite numeric result');return result;
+ }
+ if(v.op==='wrapText'){
+  const [value,metrics,width]=a;if(typeof value!=='string'||!metrics||!Number.isFinite(width)||width<=0||value.length>20000)throw Error('Invalid text measurement');
+  const fallback=Number(metrics.fallback);if(!Number.isFinite(fallback)||fallback<=0)throw Error('Invalid font metrics');
+  const advance=ch=>{const w=metrics.widths?.[ch];return Number.isFinite(w)&&w>=0?w: /[\u0300-\u036f\u200d\ufe00-\ufe0f]/.test(ch)?0:fallback;};
+  const lines=[];let current='',length=0,lastBreak=-1;
+  function push(){lines.push(current.replace(/[ \t]+$/,''));current='';length=0;lastBreak=-1;}
+  for(const ch of Array.from(value.replace(/\r\n?/g,'\n'))){
+   if(ch==='\n'){push();continue;}
+   const w=advance(ch);
+   if(current&&length+w>width){
+    if(lastBreak>=0){const tail=current.slice(lastBreak+1);current=current.slice(0,lastBreak);push();current=tail;length=Array.from(tail).reduce((n,c)=>n+advance(c),0);}
+    else push();
+   }
+   if(!current&&ch===' ')continue;current+=ch;length+=w;if(ch===' '||ch==='\t')lastBreak=current.length-1;
+  }
+  push();const maxWidth=Math.max(0,...lines.map(line=>Array.from(line).reduce((n,c)=>n+advance(c),0)));
+  return [lines.join('\n'),maxWidth,lines.length];
+ }
+ if(v.op==='dateFormat'){
+  const [timestamp,format='day',offset=0]=a;if(!Number.isFinite(timestamp)||!Number.isFinite(offset)||Math.abs(offset)>840)throw Error('Invalid date input');
+  const d=new Date(timestamp-offset*60000);if(!Number.isFinite(d.getTime()))throw Error('Invalid date');const iso=d.toISOString();
+  if(format==='day')return iso.slice(0,10);if(format==='time')return iso.slice(11,16);if(format==='usDate')return (d.getUTCMonth()+1)+'/'+d.getUTCDate()+'/'+d.getUTCFullYear();if(format==='iso')return new Date(timestamp).toISOString();throw Error('Unknown date format');
  }
  switch(v.op){case 'at':if(!Array.isArray(a[0])||!Number.isInteger(a[1]))throw Error('at needs array and integer');return a[0][a[1]]??null;case 'mod':return a[0]%a[1];case 'sum':if(!Array.isArray(a[0]))throw Error('sum needs array');if(a[0].some(x=>typeof x!=='number'||!Number.isFinite(x)))throw Error('sum needs finite numbers');return a[0].reduce((sum,x)=>sum+x,0);case 'trim':return String(a[0]??'').trim();case 'split':return String(a[0]??'').split(String(a[1]??'\n'));case 'join':if(!Array.isArray(a[0]))throw Error('join needs array');return a[0].join(String(a[1]??''));case 'contains':return String(a[0]??'').toLocaleLowerCase().includes(String(a[1]??'').toLocaleLowerCase());case 'eq':return a[0]===a[1];case 'not':return !a[0];case 'and':return a.every(Boolean);case 'or':return a.some(Boolean);case 'add':return a.reduce((x,y)=>x+Number(y),0);case 'sub':return a[0]-a[1];case 'gt':return a[0]>a[1];case 'gte':return a[0]>=a[1];case 'lt':return a[0]<a[1];case 'concat':return a.join('');case 'length':return a[0]?.length||0;case 'if':return a[0]?a[1]:a[2];default:throw Error('Unknown expression '+v.op)}}
  return Object.fromEntries(Object.entries(v).map(([k,x])=>[k,expr(x,c)]));}
@@ -40,8 +64,8 @@ function projectRevolve(profile,angle,elevation,color){
  return m.faces.map(f=>{const pts=f.map(i=>vertices[i]),u=pts[1].map((v,i)=>v-pts[0][i]),v=pts[3].map((x,i)=>x-pts[0][i]);const normal=[u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0]],len=Math.hypot(...normal)||1;const light=.38+.62*Math.abs((normal[0]*-.4+normal[1]*.5+normal[2]*.75)/len);const hex='#'+rgb.map(c=>Math.min(255,Math.round(c*light+18*light)).toString(16).padStart(2,'0')).join('');return {points:pts.map(p=>[.5+p[0]*.4,.5-p[1]*.4]),color:hex,depth:pts.reduce((s,p)=>s+p[2],0)/4};}).sort((a,b)=>a.depth-b.depth);
 }
 function text(value,c){return String(value??'').replace(/\{\{\s*([\w.]+)\s*\}\}/g,(_,p)=>String(get(c,p)??''))}
-function initial(model){const session={stack:[{page:model.entry,params:{}}],modals:[],state:clone(model.state),storage:{},scroll:{},tick:0,animation:null,locale:model.localization?.default||'en',effects:[],pendingEffects:{},chromeInsets:{}};return model.pages[model.entry].onEnter?reduce(model,session,{action:model.pages[model.entry].onEnter}):session}
-function context(s,item,event){return {state:s.state,params:event?.sourceParams||s.stack[s.stack.length-1].params,item:item||{},event:event||{},storage:s.storage}}
+function initial(model,clock){const session={stack:[{page:model.entry,params:{}}],modals:[],state:clone(model.state),storage:{},scroll:{},tick:0,animation:null,locale:model.localization?.default||'en',effects:[],pendingEffects:{},chromeInsets:{},clock:clock||{now:0,offsetMinutes:0}};return model.pages[model.entry].onEnter?reduce(model,session,{action:model.pages[model.entry].onEnter}):session}
+function context(s,item,event){return {state:s.state,params:event?.sourceParams||s.stack[s.stack.length-1].params,item:item||{},event:event||{},storage:s.storage,clock:s.clock||{now:0,offsetMinutes:0}}}
 // Dialogs are keyed pages, not anonymous instances. Recover old duplicate stacks
 // without discarding page data or edits, retaining the topmost occurrence.
 function modalPages(model,session){
@@ -52,13 +76,18 @@ function modalPages(model,session){
  }
  return result.reverse();
 }
-function reduce(model,session,event){if(event.requiresAnalysis){const v=event.value;if(!v||v.version!==1||!Array.isArray(v.regions)||v.regions.length!==12||v.regions.some(r=>!Number.isFinite(r.coverage)||r.coverage<0||r.coverage>1||!Number.isFinite(r.saturation)||r.saturation<0||r.saturation>1))throw Error('Invalid model analysis');}if(event.requiresValue&&(typeof event.value!=='string'||!event.value.trim()))throw Error('Model save requires a completed work identifier');const s=clone(session);s.modals=modalPages(model,s);if(event.disabled)return s;s.animation=null;s.effects=s.effects||[];const ctx=()=>({...context(s,event.item,event),localization:model.localization,locale:s.locale||'en'});let budget=256;
+function reduce(model,session,event){if(event.requiresAnalysis){const v=event.value;if(!v||v.version!==1||!Array.isArray(v.regions)||v.regions.length!==12||v.regions.some(r=>!Number.isFinite(r.coverage)||r.coverage<0||r.coverage>1||!Number.isFinite(r.saturation)||r.saturation<0||r.saturation>1))throw Error('Invalid model analysis');}if(event.requiresValue&&(typeof event.value!=='string'||!event.value.trim()))throw Error('Model save requires a completed work identifier');const s=clone(session);s.modals=modalPages(model,s);if(event.disabled)return s;if(event.clock){const {now,offsetMinutes}=event.clock;if(!Number.isFinite(now)||Math.abs(now)>8640000000000000||!Number.isFinite(offsetMinutes)||Math.abs(offsetMinutes)>840)throw Error('Invalid host clock');s.clock={now,offsetMinutes}}s.animation=null;s.effects=s.effects||[];const ctx=()=>({...context(s,event.item,event),...(model.viewport?{layout:layoutEnvironment(model,s)}:{}),localization:model.localization,locale:s.locale||'en'});let budget=256;
  if(['navigate','tab','back','popTo'].includes(event.type))s.routeEpoch=(s.routeEpoch||0)+1;
  function run(steps){for(const a of steps||[]){if(--budget<0)throw Error('Action sequence exceeds 256 steps');const val=()=>expr(a.value,ctx());switch(a.type){
  case 'call':run(model.actions[a.action]);break;
  case 'delay':{const id=String(s.tick+1)+':'+s.effects.length;const effect={type:'delay',duration:a.duration,id};s.pendingEffects=s.pendingEffects||{};s.pendingEffects[id]={...effect,actions:clone(a.actions),scope:a.scope,routeEpoch:s.routeEpoch||0,item:clone(event.item||{}),sourceParams:clone(ctx().params)};s.effects.push(effect);break}
  case 'openURL':{const url=model.links?.[a.link];if(!url)throw Error('Unknown link '+a.link);s.effects.push({type:'openURL',url,id:String(s.tick+1)+':'+s.effects.length});break}
  case 'set':set(s.state,a.path,val());break;
+ case 'scrollTo':{const x=expr(a.x??0,ctx()),y=expr(a.y,ctx());if(!Number.isFinite(x)||!Number.isFinite(y)||x<0||y<0)throw Error('Invalid scroll offset');s.scroll[a.node]={x,y};break;}
+ case 'photoPreview':{
+ const id=String(s.tick+1)+':'+s.effects.length;
+ const effect={type:'photoPreview',id,title:expr(a.title,ctx()),message:expr(a.message,ctx()),close:expr(a.close,ctx())};
+ s.pendingPhotos=s.pendingPhotos||{};s.pendingPhotos[id]={path:a.path,routeEpoch:s.routeEpoch||0};s.effects.push(effect);break;}
  case 'generateID':{const uuid=typeof global.crypto?.randomUUID==='function'?global.crypto.randomUUID():'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,k=>{const r=Math.floor(Math.random()*16);return (k==='x'?r:(r&3)|8).toString(16)});set(s.state,a.path,uuid);break;}
  case 'forget':delete s.storage[a.key];break;
  case 'share':{const filename=String(expr(a.filename,ctx())),content=String(expr(a.content,ctx())),mime=a.mime||'text/plain';if(!/^[A-Za-z0-9][A-Za-z0-9._-]{0,100}$/.test(filename))throw Error('Unsafe export filename');s.effects.push({type:'share',filename,content,mime,id:String(s.tick+1)+':'+s.effects.length});break;}
@@ -72,12 +101,18 @@ function reduce(model,session,event){if(event.requiresAnalysis){const v=event.va
  case 'present':if(!model.pages[a.page]||model.pages[a.page].role!=='dialog')throw Error('Unknown dialog');if(s.modals.includes(a.page)||s.stack[s.stack.length-1].page===a.page)break;s.modals.push(a.page);if(model.pages[a.page].onEnter)run(model.actions[model.pages[a.page].onEnter]);break;
  case 'dismiss':s.modals.pop();break;
  case 'persist':s.storage[a.key]=val();break;
- case 'restore':set(s.state,a.path,clone(s.storage[a.key]??a.default));break;
- case 'reset':s.state=clone(model.state);s.pendingEffects={};s.effects=[];break;
+ case 'restore':set(s.state,a.path,withDefaults(s.storage[a.key]??a.default,a.default));break;
+ case 'reset':s.state=clone(model.state);s.pendingEffects={};s.pendingPhotos={};s.effects=[];break;
  case 'animate':s.animation=clone(a);run(a.actions);break;
  default:throw Error('Unknown action '+a.type)
  }}}
- if(event.type==='effectComplete'){const pending=s.pendingEffects?.[event.id];if(!pending)return s;delete s.pendingEffects[event.id];s.effects=s.effects.filter(e=>e.id!==event.id);event={...event,item:pending.item||{},sourceParams:pending.sourceParams||{}};if(pending.scope!=='page'||(pending.routeEpoch===(s.routeEpoch||0)&&!s.editingPage))run(pending.actions)}
+ if(event.type==='photoResult'){
+  const pending=s.pendingPhotos?.[event.id];if(!pending)return s;
+  if(!['selected','cancelled','failed'].includes(event.status))throw Error('Invalid photo result');
+  delete s.pendingPhotos[event.id];s.effects=s.effects.filter(e=>e.id!==event.id);
+  if(pending.routeEpoch===(s.routeEpoch||0)&&pending.path)set(s.state,pending.path,{status:event.status});
+ }
+ else if(event.type==='effectComplete'){const pending=s.pendingEffects?.[event.id];if(!pending)return s;delete s.pendingEffects[event.id];s.effects=s.effects.filter(e=>e.id!==event.id);event={...event,item:pending.item||{},sourceParams:pending.sourceParams||{}};if(pending.scope!=='page'||(pending.routeEpoch===(s.routeEpoch||0)&&!s.editingPage))run(pending.actions)}
  else if(event.type==='locale'){if(!['en','zh-Hans'].includes(event.locale))throw Error('Unsupported locale');s.locale=event.locale}
  else if(event.type==='chromeInsets'){for(const key of ['top','bottom'])if(!Number.isFinite(event[key])||event[key]<0||event[key]>250)throw Error('Invalid safe area');s.chromeInsets={top:event.top,bottom:event.bottom};if(event.height!=null){if(!Number.isFinite(event.height)||event.height<240||event.height>4096)throw Error('Invalid viewport height');s.viewportHeight=event.height}}
  else if(event.type==='tab')run([{type:'tab',page:event.page}]);
@@ -92,13 +127,20 @@ function style(raw,c){const st={...(raw.style||{}),...expr(raw.styles||{},c)};fo
  if(numeric.includes(k)&&!(['width','height'].includes(k)&&['fill','auto'].includes(v))&&(typeof v!=='number'||!Number.isFinite(v)))throw Error('Invalid dynamic style '+raw.id+'.'+k);
  if(['color','background','border-color'].includes(k)&&!/^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/.test(v))throw Error('Invalid color '+raw.id+'.'+k);
  }return st;}
-function rawFrame(model,session,overrides){const nodes=[],nodeIDs=new Set(),events={},layout={...model.viewport,height:session.viewportHeight||model.viewport.height},ctx={...context(session),localization:model.localization,locale:session.locale||'en'},assets=Object.fromEntries(model.assets.map(a=>[a.name,a]));
+function layoutEnvironment(model,session){
+ const width=model.viewport.width,height=session.viewportHeight||model.viewport.height,p=model.pages[session.stack[session.stack.length-1].page];
+ const hasTabs=(model.navigation?.tabs||[]).some(t=>t.page===session.stack[0].page)&&session.stack.length===1;
+ const top=model.navigation?(session.chromeInsets?.top??(p.navigation?.hidden?59:103)):0;
+ const bottom=model.navigation?(session.chromeInsets?.bottom??(hasTabs?83:34)):0;
+ return {width,height,top,bottom,contentHeight:Math.max(1,height-top-bottom)};
+}
+function rawFrame(model,session,overrides){const nodes=[],nodeIDs=new Set(),events={},layout={...model.viewport,height:session.viewportHeight||model.viewport.height},ctx={...context(session),layout:layoutEnvironment(model,session),localization:model.localization,locale:session.locale||'en'},assets=Object.fromEntries(model.assets.map(a=>[a.name,a]));
  function num(v,available,fallback){if(v==null||v==='auto')return fallback;if(v==='fill')return available;return Number(v)}
  function expanded(children,c,prefix){let out=[];for(const raw of children||[]){if(raw['runtime-only']&&session.editingPage)continue;if(raw.when&&!expr(raw.when,c))continue;
  if(raw.repeat){const rows=expr(raw.repeat,c);if(!Array.isArray(rows))throw Error('repeat must be array: '+raw.id);const keys=new Set();for(const item of rows){const key=get(item,raw.key);if(key==null||keys.has(String(key)))throw Error('Missing/duplicate repeat key: '+raw.id);keys.add(String(key));out.push({raw,c:{...c,item},id:prefix+raw.id+'['+key+']'})}}
  else out.push({raw,c,id:prefix+raw.id});}return out;}
  function render(raw,c,id,box,parent,z){const st=style(raw,c),patch=overrides?.[id]||{},typ=raw.type;
- let n={id,name:raw.name||id,type:typ,action:raw.action||'', text:raw['text-key']?translate(c,raw['text-key'],expr(raw['text-args']||{},c)):('content'in raw)?String(expr(raw.content,c)??''):text(raw.text,c),x:box.x,y:box.y,width:box.w,height:box.h,rotation:st.rotation||0,opacity:st.opacity??1,fill:st.background||'#00000000',color:st.color||'#17212B',fontSize:st['font-size']||16,fontWeight:st['font-weight']||400,fontFamily:st['font-family']||'sans',alignment:st['text-align']||'left',lineHeight:st['line-height'],letterSpacing:st['letter-spacing'],cornerRadius:st['border-radius']||0,strokeColor:st['border-color']||'#00000000',strokeWidth:st['border-width']||0,fit:st['object-fit']||'fit',groupID:raw.group||'',sharedKey:raw.shared||null,hidden:false,locked:false,parent:parent||'',clip:st.overflow==='hidden',scale:st.scale||1,gradient:raw.gradient||null,shadow:raw.shadow||null,options:raw['option-keys']?raw['option-keys'].map(key=>translate(c,key)):raw.options||[],step:raw.step||1,disabled:raw.disabled?!!expr(raw.disabled,c):false,placeholder:raw['placeholder-key']?translate(c,raw['placeholder-key']):raw.placeholder||'',value:raw.bind&&typeof get(session.state,raw.bind)==='number'?get(session.state,raw.bind):0,isOn:raw.bind?!!get(session.state,raw.bind):false,minimum:raw.min??0,maximum:raw.max??1,inputType:raw.inputType||'text',source:raw.source};
+ let n={id,name:raw.name||id,type:typ,action:raw.action||'', text:raw['text-key']?translate(c,raw['text-key'],expr(raw['text-args']||{},c)):('content'in raw)?String(expr(raw.content,c)??''):text(raw.text,c),x:box.x,y:box.y,width:box.w,height:box.h,rotation:st.rotation||0,opacity:st.opacity??1,fill:st.background||'#00000000',color:st.color||'#17212B',fontSize:st['font-size']||16,fontWeight:st['font-weight']||400,fontFamily:st['font-family']||'sans',alignment:st['text-align']||'left',lineHeight:st['line-height'],letterSpacing:st['letter-spacing'],cornerRadius:st['border-radius']||0,strokeColor:st['border-color']||'#00000000',strokeWidth:st['border-width']||0,fit:st['object-fit']||'fit',imageRendering:st['image-rendering']||'auto',groupID:raw.group||'',sharedKey:raw.shared||null,hidden:false,locked:false,parent:parent||'',clip:st.overflow==='hidden',scale:st.scale||1,gradient:raw.gradient||null,shadow:raw.shadow||null,options:raw['option-keys']?raw['option-keys'].map(key=>translate(c,key)):raw.options||[],step:raw.step||1,disabled:raw.disabled?!!expr(raw.disabled,c):false,placeholder:raw['placeholder-key']?translate(c,raw['placeholder-key']):raw.placeholder||'',value:raw.bind&&typeof get(session.state,raw.bind)==='number'?get(session.state,raw.bind):0,isOn:raw.bind?!!get(session.state,raw.bind):false,minimum:raw.min??0,maximum:raw.max??1,inputType:raw.inputType||'text',source:raw.source};
  if(raw.bind&&['nativeTextField','nativeTextView'].includes(typ))n.text=String(get(session.state,raw.bind)??'');
  n.textKey=raw['text-key']||null;n.placeholderKey=raw['placeholder-key']||null;n.symbol=raw.symbol||null;n.selected=raw.selected?!!expr(raw.selected,c):false;
  const aid=raw.asset?text(raw.asset,c):'';if(aid){if(!assets[aid])throw Error('Missing resource '+aid);n.asset=assets[aid].id}

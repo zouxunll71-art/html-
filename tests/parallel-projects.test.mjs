@@ -11,7 +11,7 @@ function runRoute(route,context){
 test('switching previews does not interrupt another running project',async()=>{
  const running=new Map([['a','turn-a']]),calls=[],registry={};
  const activate=source.slice(source.indexOf('async function activate(id)'),source.indexOf('\nconst instructions'));
- await vm.runInNewContext(activate+';activate("b")',{running,registry,project:async id=>({id,nativePreview:true}),studio:async(...args)=>calls.push(args),save(){}});
+ await vm.runInNewContext(activate+';activate("b")',{running,registry,project:async id=>({id,nativePreview:true,workbenchEnabled:true}),studio:async(...args)=>calls.push(args),save(){}});
  assert.equal(registry.selectedProject,'b');assert.equal(running.get('a'),'turn-a');assert.equal(calls[0][0],'/activate-project');
 });
 test('new and imported projects are permitted while another project runs',async()=>{

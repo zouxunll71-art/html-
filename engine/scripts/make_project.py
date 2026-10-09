@@ -15,11 +15,15 @@ obj('T1',f'isa = PBXNativeTarget; name = {name}; productName = {name}; productRe
 for i,t in enumerate(['Sources','Frameworks','Resources']):obj('B'+str(i+1),f'isa = PBX{t}BuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0;')
 base='SDKROOT = iphoneos; IPHONEOS_DEPLOYMENT_TARGET = '+os.environ.get('STUDIO_MIN_IOS','17.0')+'; SWIFT_VERSION = 5.0; CLANG_ENABLE_MODULES = YES;'
 target=f'''PRODUCT_BUNDLE_IDENTIFIER = {bundle_id}; PRODUCT_NAME = "$(TARGET_NAME)"; GENERATE_INFOPLIST_FILE = YES; INFOPLIST_KEY_UILaunchScreen_Generation = YES; INFOPLIST_KEY_UIApplicationSceneManifest_Generation = NO; INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoads = YES; INFOPLIST_KEY_NSLocalNetworkUsageDescription = "连接本机 HTML Native Studio 服务"; TARGETED_DEVICE_FAMILY = "1,2"; SUPPORTS_MACCATALYST = YES; DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER = NO; CODE_SIGN_IDENTITY = "-"; CODE_SIGN_STYLE = Automatic; ENABLE_USER_SCRIPT_SANDBOXING = NO; ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = NO;'''
+if 'Studio' in folders and (root/'Studio/LocalSurfaceBridge.h').is_file():
+ target+=' SWIFT_OBJC_BRIDGING_HEADER = "Studio/LocalSurfaceBridge.h";'
 if os.environ.get('STUDIO_NATIVE_EXPORT')=='1':
  target+=' INFOPLIST_FILE = App/AppInfo.plist; INFOPLIST_KEY_CFBundleDevelopmentRegion = en;'
  target=target.replace('INFOPLIST_KEY_NSLocalNetworkUsageDescription = "连接本机 HTML Native Studio 服务";','')
+# Keep Host and exported business-app settings unchanged; optimize only the shared preview Runtime.
+optimization='-O' if name=='HTMLNativeRuntime' and folders==['Runtime','Shared'] and os.environ.get('STUDIO_NATIVE_EXPORT')!='1' else '-Onone'
 for i,sets in [(1,base),(2,target)]:
  obj('C'+str(i),f'isa = XCConfigurationList; buildConfigurations = (D{i},R{i}); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release;')
- for key,mode in [('D','Debug'),('R','Release')]:obj(key+str(i),f'isa = XCBuildConfiguration; name = {mode}; buildSettings = {{ {sets} SWIFT_OPTIMIZATION_LEVEL = "-Onone"; }};')
+ for key,mode in [('D','Debug'),('R','Release')]:obj(key+str(i),f'isa = XCBuildConfiguration; name = {mode}; buildSettings = {{ {sets} SWIFT_OPTIMIZATION_LEVEL = "{optimization}"; }};')
 p=root/(name+'.xcodeproj');p.mkdir(parents=True,exist_ok=True)
 (p/'project.pbxproj').write_text('// !$*UTF8*$!\n{ archiveVersion = 1; classes = {}; objectVersion = 77; objects = {\n'+'\n'.join(objects)+'\n}; rootObject = A1; }')

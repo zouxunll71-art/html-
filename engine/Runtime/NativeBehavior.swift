@@ -26,7 +26,9 @@ extension NativeRuntimeController:SFSafariViewControllerDelegate,UIAdaptivePrese
   if controller.parent !== self {controller.willMove(toParent:nil);controller.view.removeFromSuperview();controller.removeFromParent();addChild(controller);controller.view.translatesAutoresizingMaskIntoConstraints=false;view.addSubview(controller.view);NSLayoutConstraint.activate([controller.view.leadingAnchor.constraint(equalTo:view.leadingAnchor),controller.view.trailingAnchor.constraint(equalTo:view.trailingAnchor),controller.view.topAnchor.constraint(equalTo:view.topAnchor),controller.view.bottomAnchor.constraint(equalTo:view.bottomAnchor)]);controller.didMove(toParent:self)}
  }
  func applyRuntimePage(_ page:[String:Any]){
-  for target in [scene,modalScene]{target.modelProject=payload["projectID"] as? String ?? (payload["model"] as? [String:Any])?["id"] as? String ?? "app";target.editingModels=payload["editing"] as? Bool ?? false}
+  let profile=beginApplyProfile(page,project:payload["projectID"],revision:revision,origin:"directApply");defer{NativeApplyProfile.finish(profile)}
+  tracePerformance("applyBegin:"+(page["id"] as? String ?? ""));defer{tracePerformance("applyEnd")}
+  for target in [scene,modalScene]{target.cacheIdentity=(payload["projectID"] as? String ?? "")+":"+((payload["model"] as? [String:Any])?["hash"] as? String ?? "");target.modelProject=payload["projectID"] as? String ?? (payload["model"] as? [String:Any])?["id"] as? String ?? "app";target.editingModels=payload["editing"] as? Bool ?? false}
   let chrome=page["nativeChrome"] as? [String:Any]
   let stack=(chrome?["stack"] as? [[String:Any]] ?? []).compactMap{$0["page"] as? String}
   let routeParts=[(payload["model"] as? [String:Any])?["id"] as? String ?? "",page["id"] as? String ?? ""]+stack+(page["modalPages"] as? [String] ?? [])
@@ -34,12 +36,18 @@ extension NativeRuntimeController:SFSafariViewControllerDelegate,UIAdaptivePrese
   let changed = !renderedRouteKey.isEmpty && renderedRouteKey != routeKey
   renderedRouteKey=routeKey
   if changed {
+   routeFadeCandidate.cancel(on:view.layer)
    if routeAnimator?.state == .active{routeAnimator?.stopAnimation(true)};routeAnimator=nil;routeSnapshot?.removeFromSuperview();routeSnapshot=nil
    scene.finishSceneAnimation();modalScene.finishSceneAnimation()
   }
-  if changed,view.window != nil,pageTransitionDuration>0,!UIAccessibility.isReduceMotionEnabled,let snapshot=view.snapshotView(afterScreenUpdates:false) {
+  let shouldTransition=changed && view.window != nil && pageTransitionDuration>0 && !UIAccessibility.isReduceMotionEnabled
+  if shouldTransition,routeFadeCandidate.perform(on:view.layer,duration:pageTransitionDuration,updates:{
+   UIView.performWithoutAnimation{self.applyRuntimeContents(page,animated:false);NativeApplyProfile.measure("render.finalLayout"){self.view.layoutIfNeeded()}}
+  }) {
+   tracePerformance("routeTransition:caCandidate")
+  }else if shouldTransition,let snapshot=NativeApplyProfile.measure("snapshot",{view.snapshotView(afterScreenUpdates:false)}) {
    snapshot.frame=view.bounds;snapshot.autoresizingMask=[.flexibleWidth,.flexibleHeight];snapshot.isUserInteractionEnabled=false
-   UIView.performWithoutAnimation{self.applyRuntimeContents(page,animated:false);self.view.layoutIfNeeded()}
+   UIView.performWithoutAnimation{self.applyRuntimeContents(page,animated:false);NativeApplyProfile.measure("render.finalLayout"){self.view.layoutIfNeeded()}}
    view.addSubview(snapshot);routeSnapshot=snapshot
    let animator=UIViewPropertyAnimator(duration:pageTransitionDuration,curve:.easeInOut){snapshot.alpha=0}
    animator.addCompletion{[weak self,weak snapshot]_ in
@@ -50,17 +58,18 @@ extension NativeRuntimeController:SFSafariViewControllerDelegate,UIAdaptivePrese
   }else{applyRuntimeContents(page,animated:!changed)}
  }
  func applyRuntimeContents(_ page:[String:Any],animated:Bool){
+  let profile=NativeApplyProfile.active,start=profile?.clock();defer{if let profile=profile,let start=start{profile.add("render",profile.clock()-start)}}
   if let chrome=page["nativeChrome"] as? [String:Any]{
-   pinChild(navigationHost);navigationHost.view.isHidden=false;navigationHost.apply(chrome,scene:scene)
+   pinChild(navigationHost);navigationHost.view.isHidden=false;NativeApplyProfile.measure("render.nativeChrome"){navigationHost.apply(chrome,scene:scene)}
    var content=page,overlay=page
    let modals=page["modalPages"] as? [String] ?? [],top=(page["contentInsets"] as? [String:Any])?["top"] as? Double ?? 0
    let all=page["nodes"] as? [[String:Any]] ?? []
    func isModal(_ node:[String:Any])->Bool{let id=node["id"] as? String ?? "";return id.hasPrefix("$shade") || modals.contains{ id==$0 || id.hasPrefix($0+"/") }}
    content["nodes"]=all.filter{!isModal($0)}.map {node -> [String:Any] in var node=node;if (node["parent"] as? String ?? "").isEmpty{node["y"]=(node["y"] as? Double ?? 0)-top};return node}
-   scene.apply(content,animated:animated)
-   pinChild(modalScene);view.bringSubviewToFront(modalScene.view);modalScene.view.backgroundColor = .clear;modalScene.view.isHidden=modals.isEmpty;overlay["nodes"]=all.filter{isModal($0)};modalScene.apply(overlay,animated:animated)
+   NativeApplyProfile.measure("render.contentScene"){scene.apply(content,animated:animated)}
+   pinChild(modalScene);view.bringSubviewToFront(modalScene.view);modalScene.view.backgroundColor = .clear;modalScene.view.isHidden=modals.isEmpty;overlay["nodes"]=all.filter{isModal($0)};NativeApplyProfile.measure("render.modalScene"){modalScene.apply(overlay,animated:animated)}
   }else{
-   navigationHost.viewIfLoaded?.isHidden=true;modalScene.viewIfLoaded?.isHidden=true;pinChild(scene);view.layoutIfNeeded();scene.apply(page,animated:animated)
+   navigationHost.viewIfLoaded?.isHidden=true;modalScene.viewIfLoaded?.isHidden=true;pinChild(scene);NativeApplyProfile.measure("render.preLayout"){view.layoutIfNeeded()};NativeApplyProfile.measure("render.contentScene"){scene.apply(page,animated:animated)}
   }
   if page["closeBrowser"] as? Bool==true {
    if let controller=presentedViewController as? SFSafariViewController{controller.dismiss(animated:true){[weak self] in self?.reportBrowser(false)}}else{reportBrowser(false)}
@@ -81,7 +90,16 @@ extension NativeRuntimeController:SFSafariViewControllerDelegate,UIAdaptivePrese
    guard let id=effect["id"] as? String else{continue};let key=project+":"+id
    if handledEffects.contains(key){acknowledged.append(id);continue}
    if effect["type"] as? String=="share" {if !shareDocument(effect){continue}}
-   else if effect["type"] as? String=="openURL",let string=effect["url"] as? String,let url=URL(string:string),url.scheme=="https",url.host != nil {
+   else if effect["type"] as? String=="photoPreview" {
+    guard presentedViewController==nil,photoPreview==nil else{continue}
+    let owner=payload["projectID"] as? String ?? project
+    let picker=NativePhotoPreview();photoPreview=picker
+    picker.start(from:self,title:effect["title"] as? String ?? "",message:effect["message"] as? String ?? "",close:effect["close"] as? String ?? ""){[weak self] status in
+     guard let self=self else{return};self.photoPreview=nil
+     guard (self.payload["projectID"] as? String ?? project)==owner else{return}
+     self.event(["type":"photoResult","id":id,"status":status])
+    }
+   }else if effect["type"] as? String=="openURL",let string=effect["url"] as? String,let url=URL(string:string),url.scheme=="https",url.host != nil {
     // Leave queued links pending while Safari is already on screen.
     guard presentedViewController==nil else{continue}
     let safari=SFSafariViewController(url:url);safari.modalPresentationStyle = .pageSheet;safari.delegate=self;present(safari,animated:true){[weak self] in self?.reportBrowser(true)};safari.presentationController?.delegate=self

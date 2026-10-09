@@ -7,8 +7,8 @@ def fingerprint(kind):
  paths=[]
  for folder in folders:
   for p in (ROOT/folder).rglob('*'):
-   if p.is_file() and '__pycache__' not in p.parts and p.suffix in ('.swift','.js','.mjs','.html','.css','.py','.json','.txt','.md') and p.name not in ('token','config.json'):paths.append(p)
- if kind=='build':paths += [ROOT/'scripts/build.sh',ROOT/'scripts/make_project.py',ROOT/'scripts/ios_frames.m',ROOT/'scripts/ios_input.m']
+   if p.is_file() and '__pycache__' not in p.parts and p.suffix in ('.swift','.h','.js','.mjs','.html','.css','.py','.json','.txt','.md') and p.name not in ('token','config.json'):paths.append(p)
+ if kind=='build':paths += [ROOT/'scripts/build.sh',ROOT/'scripts/make_project.py',ROOT/'scripts/ios_frames.m',ROOT/'scripts/ios_input.m',ROOT/'scripts/preview_png.c',ROOT/'scripts/ios_surface.m',ROOT/'scripts/ios_surface_wire.h']
  digest=hashlib.sha256()
  for p in sorted(set(paths)):digest.update(str(p.relative_to(ROOT)).encode());digest.update(p.read_bytes())
  return digest.hexdigest()

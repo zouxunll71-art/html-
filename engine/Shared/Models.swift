@@ -1,8 +1,8 @@
 import UIKit
 struct StudioTextSpan:Codable,Equatable {var start:Int;var end:Int;var fontSize:CGFloat?;var fontWeight:CGFloat?;var color:String?;var underline:Bool?;var italic:Bool?}
-struct StudioAsset: Codable { var id:String; var name:String; var kind:String; var file:String; var source:String; var sha256:String }
-struct StudioProject: Codable {var compileRevision:String?; var importMode:String?;var referenceAssets:[String:String]?;var pageRoles:[String:String]?; var schemaVersion=1; var id:String; var name:String; var sourcePath:String; var package:String; var assets:[StudioAsset]; var pages:[StudioPage]; var pageCandidates:[String]; var updated:Double;var selectionColor:String?;var sharedNavigation:[String:StudioNode]? }
-struct StudioPage: Codable { var id=UUID().uuidString; var name:String; var route:String; var width:CGFloat=393; var height:CGFloat=852; var background="#FFFFFF"; var nodes:[StudioNode]=[];var templateRoutes:[String]?;var paintOrderVersion:Int? }
+struct StudioAsset: Codable,Equatable { var id:String; var name:String; var kind:String; var file:String; var source:String; var sha256:String }
+struct StudioProject: Codable,Equatable {var compileRevision:String?; var importMode:String?;var referenceAssets:[String:String]?;var pageRoles:[String:String]?; var schemaVersion=1; var id:String; var name:String; var sourcePath:String; var package:String; var assets:[StudioAsset]; var pages:[StudioPage]; var pageCandidates:[String]; var updated:Double;var selectionColor:String?;var sharedNavigation:[String:StudioNode]? }
+struct StudioPage: Codable,Equatable { var id=UUID().uuidString; var name:String; var route:String; var width:CGFloat=393; var height:CGFloat=852; var background="#FFFFFF"; var nodes:[StudioNode]=[];var templateRoutes:[String]?;var paintOrderVersion:Int? }
 struct StudioGradient:Codable,Equatable {var colors:[String];var locations:[CGFloat]?;var start:[CGFloat]?;var end:[CGFloat]?}
 struct StudioShadow:Codable,Equatable {var color:String?;var x:CGFloat?;var y:CGFloat?;var blur:CGFloat?}
 struct StudioNode: Codable,Equatable {

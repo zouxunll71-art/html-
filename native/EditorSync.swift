@@ -28,6 +28,21 @@ extension StudioController {
  func acceptEditorSnapshot(_ fresh:StudioProject,raw:[String:Any],revision:Int) {
   guard let local=project,fresh.id==local.id else{return}
   let route=raw["id"] as? String ?? ""
+  // A clean snapshot needs no three-way merge, JSON round-trip, or undo rebase.
+  // Compare the complete typed project, not just the current page/dirty flag:
+  // unsaved edits on another page must still take the protected merge path.
+  if let base=editorBase,base.compileRevision==fresh.compileRevision,local==base {
+   let priorPage=page
+   project=fresh;editorBase=fresh;rawScene=raw;activePage=route;observedRevision=revision
+   if let index=fresh.pages.firstIndex(where:{$0.id==route}){pageIndex=index}
+   pageIndex=min(pageIndex,max(0,fresh.pages.count-1))
+   if let id=selected,page?.nodes.contains(where:{$0.id==id}) != true{selected=nil}
+   multiSelection=multiSelection.intersection(Set(page?.nodes.map{$0.id} ?? []))
+   closeWebButton.isHidden = !(raw["browserOpen"] as? Bool ?? false)
+   if priorPage != page || local.selectionColor != fresh.selectionColor{view.setNeedsLayout();updatePage()}
+   else if local.assets != fresh.assets{reloadCatalog()}
+   return
+  }
   do {
    let base=editorBase ?? local,original=try editorObject(base),current=try editorObject(local),remote=try editorObject(fresh)
    let changes=EditorRebase.changedPages(base:original,local:current)

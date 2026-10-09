@@ -2,10 +2,87 @@
 let payload=null,revision=-1,busy=false,pollPending=false,sending=Promise.resolve(),views=new Map(),editMode=true,lastAnimationID=null,sourceSelection=null;
 window.studioSelect=id=>{sourceSelection=id;for(const [key,v] of views)v.style.outline=key===id&&editMode ? "2px solid #235BDE":"none"};
 const root=document.getElementById('screen'),error=document.getElementById('error');
-function api(path,body){return fetch(path,{method:body?'POST':'GET',headers:{'X-Studio-Token':TOKEN,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined}).then(async r=>{let v=await r.json();if(!r.ok)throw Error(v.error);return v})}
-function emit(event){const request={side:'web',event,eventID:crypto.randomUUID(),projectID:payload?.projectID,pageID:payload?.page.id};sending=sending.then(()=>api('/event',request)).then(()=>poll(true)).catch(e=>{error.textContent=e.message;error.style.display='block'})}
-function render(p){const animate=!matchMedia('(prefers-reduced-motion: reduce)').matches&&p.page.animation&&lastAnimationID!==p.page.animationID;lastAnimationID=p.page.animationID;const motion=animate?p.page.animation:null;payload=p;editMode=p.editing;const page=p.page,ids=new Set(page.nodes.map(n=>n.id));
-for(const [id,v] of views)if(!ids.has(id)){if(motion){v.style.pointerEvents='none';v.animate([{opacity:v.style.opacity},{opacity:0}],{duration:1000*motion.duration,delay:1000*(motion.delay||0)}).finished.finally(()=>v.remove())}else v.remove();views.delete(id)}
+// Retain decoded image resources across route changes without retaining page
+// containers, controls, event state or layout. Originals keep their resolution.
+class PreviewImageMemory {
+ constructor(limit=64*1024*1024){this.limit=limit;this.bytes=0;this.images=new Map();this.scope=''}
+ reset(scope){if(scope===this.scope)return;this.scope=scope;this.images.clear();this.bytes=0}
+ retain(image){
+  if(image.tagName!=='IMG'||image.dataset.symbolKey||!image.complete||!image.naturalWidth)return;
+  const key=image.src,bytes=image.naturalWidth*image.naturalHeight*4;if(bytes>this.limit)return;
+  const prior=this.images.get(key);if(prior){this.bytes-=prior.bytes;this.images.delete(key)}
+  this.images.set(key,{image,bytes});this.bytes+=bytes;
+  while(this.bytes>this.limit||this.images.size>64){const first=this.images.keys().next().value;this.bytes-=this.images.get(first).bytes;this.images.delete(first)}
+ }
+ touch(url){const entry=this.images.get(url);if(!entry)return false;this.images.delete(url);this.images.set(url,entry);return true}
+}
+const imageMemory=new PreviewImageMemory();
+
+// Physical display size includes every parent transform, the design canvas,
+// workbench zoom and Retina scale. Twofold oversampling protects fine edges.
+function previewRasterBox(node,page,width,height,dpr,byID=new Map(page.nodes.map(n=>[n.id,n]))){
+ if(node.imageRendering&&node.imageRendering!=='auto')return null;
+ const seen=new Set();let scale=1,current=node;
+ while(current){if(seen.has(current.id))return null;seen.add(current.id);const s=current.scale??1;if(!Number.isFinite(s))return null;scale*=Math.abs(s);if(current.parent&&!byID.has(current.parent))return null;current=byID.get(current.parent)}
+ scale*=402/page.width*Math.min(width/456,height/910)*dpr*2;
+ const box=[node.width*scale,node.height*scale].map(v=>Math.ceil(v/32)*32);
+ return box.every(v=>Number.isFinite(v)&&v>0&&v<=8192)?box:null;
+}
+function previewImageURL(node,p,byID){
+ const base=`/asset?project=${encodeURIComponent(p.projectID)}&id=${encodeURIComponent(node.asset)}&token=${encodeURIComponent(TOKEN)}`;
+ const box=previewRasterBox(node,p.page,innerWidth,innerHeight,devicePixelRatio||1,byID);
+ // A distinct URL replaces older immutable raster responses that contained
+ // the original filtered PNG when resizing was unnecessary.
+ return box?base+`&raster=${box.join(',')}&fit=${node.fit==='fill'?'cover':node.fit==='stretch'?'stretch':'contain'}&decode=fast`:base+'&decode=fast';
+}
+function updatePreviewImage(view,node,p,byID){const url=previewImageURL(node,p,byID);if(view.getAttribute('src')!==url){view.src=url;imageMemory.touch(view.src)}}
+
+// Diagnostic clocks and listeners exist only for a mirror-requested probe.
+// Keep the historical second-rAF metric for comparisons; it is not a display
+// presentation callback. Resource load completion also does not prove decoding
+// or that pixels have reached the screen. Do not force decode() to measure it.
+function previewPerformanceMark(probe,phase){
+ if(!probe)return;
+ const now=performance.now();
+ if(!probe.monotonic)probe.monotonic={clock:'performance.now',timeOriginMs:performance.timeOrigin,originMs:now,phases:{}};
+ probe.monotonic.phases[phase]=now-probe.monotonic.originMs;
+}
+function previewPerformanceTraceID(probe){
+ if(!probe)return undefined;
+ return typeof probe.tag==='string'&&/^[A-Za-z0-9_.:-]{1,160}$/.test(probe.tag)?probe.tag:undefined;
+}
+function previewPerformanceSnapshot(probe){return {...probe.monotonic,phases:{...probe.monotonic?.phases}}}
+function previewPerformanceResources(probe,p,images,fontSet=document.fonts){
+ if(!probe)return;
+ const states=images.map(image=>({image,status:'pending',cleanup:()=>{}}));
+ let finished=false,timer,imagesDone=false,fontsDone=!fontSet;
+ const fonts={status:fontSet?'pending':'unavailable',statusAtObservation:fontSet?.status||'unavailable'};
+ const post=timedOut=>{
+  if(finished)return;finished=true;clearTimeout(timer);states.forEach(state=>state.cleanup());
+  const counts={total:states.length,loaded:0,failed:0,pending:0};for(const state of states)counts[state.status]++;
+  window.webkit?.messageHandlers.studio?.postMessage({type:'performanceResources',tag:probe.tag+':resources',parentTag:probe.tag,traceID:probe.traceID,eventID:probe.eventID,side:'html',projectID:p.projectID,revision:p.revision,route:p.page.id,monotonic:previewPerformanceSnapshot(probe),images:counts,fonts,timedOut,stale:payload!==p,imageDecodeObserved:false,visibleFrameVerified:false});
+ };
+ const maybeDone=()=>{if(imagesDone&&fontsDone)post(false)};
+ const checkImages=()=>{if(!imagesDone&&states.every(state=>state.status!=='pending')){imagesDone=true;previewPerformanceMark(probe,'imagesReady');maybeDone()}};
+ for(const state of states){
+  const image=state.image;
+  const settle=status=>{if(finished||state.status!=='pending')return;state.status=status;state.cleanup();checkImages()};
+  const loaded=()=>settle(image.naturalWidth>0?'loaded':'failed'),failed=()=>settle('failed');
+  image.addEventListener('load',loaded);image.addEventListener('error',failed);
+  state.cleanup=()=>{image.removeEventListener('load',loaded);image.removeEventListener('error',failed)};
+  // A native symbol may not have a src until the host replies. Its load/error
+  // listener remains pending; complete=true alone would incorrectly pass it.
+  if((image.currentSrc||image.getAttribute('src'))&&image.complete)loaded();
+ }
+ checkImages();
+ if(fontSet)Promise.resolve(fontSet.ready).then(()=>{if(finished)return;fonts.status='ready';fonts.statusAtCompletion=fontSet.status;fontsDone=true;previewPerformanceMark(probe,'fontsReady');maybeDone()},()=>{if(finished)return;fonts.status='failed';fontsDone=true;maybeDone()});
+ if(!finished)timer=setTimeout(()=>post(true),5000);
+}
+function api(path,body,extraHeaders){return fetch(path,{method:body?'POST':'GET',headers:{'X-Studio-Token':TOKEN,'Content-Type':'application/json',...extraHeaders},body:body?JSON.stringify(body):undefined}).then(async r=>{let v=await r.json();if(!r.ok)throw Error(v.error);return v})}
+function emit(event){const activeProbe=window.__studioPerformance,probe=activeProbe&&!activeProbe.eventID?activeProbe:null;if(activeProbe&&!probe)activeProbe.concurrentEvents=(activeProbe.concurrentEvents||0)+1;if(probe){probe.emitAt=Date.now();previewPerformanceMark(probe,'emit')};const request={side:'web',event,eventID:crypto.randomUUID(),projectID:payload?.projectID,pageID:payload?.page.id,returnRuntime:true,modelHash:payload?.modelHash};if(probe){probe.eventID=request.eventID;probe.traceID=previewPerformanceTraceID(probe)};sending=sending.then(()=>{if(probe){probe.requestAt=Date.now();previewPerformanceMark(probe,'request')};return api('/event',request,probe?.traceID?{'X-Studio-Trace-ID':probe.traceID}:undefined)}).then(result=>{if(probe){probe.responseAt=Date.now();previewPerformanceMark(probe,'response')};if(!result.runtime||!acceptRuntime(result.runtime))return poll(true)}).catch(e=>{error.textContent=e.message;error.style.display='block'})}
+function render(p){const probe=window.__studioPerformance;previewPerformanceMark(probe,'render');const retainImages=imageMemory.scope===p.projectID+':'+p.modelHash;imageMemory.reset(p.projectID+':'+p.modelHash);if(probe)probe.renderAt=Date.now();const animate=!matchMedia('(prefers-reduced-motion: reduce)').matches&&p.page.animation&&lastAnimationID!==p.page.animationID;lastAnimationID=p.page.animationID;const motion=animate?p.page.animation:null;payload=p;editMode=p.editing;const page=p.page,ids=new Set(page.nodes.map(n=>n.id));
+for(const [id,v] of views)if(!ids.has(id)){if(retainImages)imageMemory.retain(v);if(motion){v.style.pointerEvents='none';v.animate([{opacity:v.style.opacity},{opacity:0}],{duration:1000*motion.duration,delay:1000*(motion.delay||0)}).finished.finally(()=>v.remove())}else v.remove();views.delete(id)}
+const imageNodes=new Map(page.nodes.map(n=>[n.id,n]));
 for(const [nodeIndex,n] of page.nodes.entries()){let v=views.get(n.id),tag=n.modelAsset?'div':n.type==='image'?'img':n.type==='nativeSegment'||n.type==='nativeStepper'?'div':n.type==='nativeTextField'?'input':n.type==='nativeTextView'?'textarea':n.type==='nativeButton'||n.type==='nativeCheckbox'?'button':n.type==='nativeSwitch'||n.type==='nativeSlider'?'input':'div';
 if(!v||v.tagName.toLowerCase()!==tag){if(v)v.remove();v=document.createElement(tag);views.set(n.id,v);v.dataset.kind=n.type;v.dataset.node=n.id;if(motion)v.animate([{opacity:0},{opacity:n.opacity}],{duration:1000*motion.duration,delay:1000*(motion.delay||0),fill:'backwards'});
 v.onclick=e=>{e.stopPropagation();if(editMode){window.studioSelect(n.id);window.webkit?.messageHandlers.studio?.postMessage({type:'select',id:n.id});return}if(n.modelAsset)return;const d=payload.page.events[n.id];if(d?.disabled)return;if(n.type==='nativeCheckbox')emit({node:n.id,value:!payload.page.nodes.find(x=>x.id===n.id).isOn});else if(n.type==='nativeSegment'||n.type==='nativeStepper'||n.type==='nativeSwitch'||n.type==='nativeSlider'||n.type==='nativeTextField'||n.type==='nativeTextView')return;else if(d?.action)emit({node:n.id})};
@@ -31,8 +108,8 @@ else if(n.type==='path'||n.type==='model'){
  if(n.mesh)n.mesh.forEach(face=>draw(face.points,null,true,face.color));else draw(n.points,n.color,n.closed,n.closed?n.fill:null);
 }
 else if(n.type==='image'&&n.symbol){requestSymbol(v,n.symbol,n.color);v.style.objectFit='contain'}
-else if(n.type==='image'){delete v.dataset.symbolKey;delete v.dataset.symbolRequested;const url=`/asset?project=${p.projectID}&id=${n.asset}&token=${TOKEN}`;if(v.getAttribute('src')!==url)v.src=url;v.style.objectFit=n.fit==='fill'?'cover':n.fit==='stretch'?'fill':'contain'}
-else if(['nativeTextField','nativeTextView'].includes(n.type)){if(v.value!==n.text&&document.activeElement!==v)v.value=n.text;v.onblur=()=>{if(payload)render(payload)};v.placeholder=n.placeholder;v.readOnly=editMode;if(n.type==='nativeTextField')v.type=n.inputType==='password'?'password':n.inputType==='number'?'number':'text'}
+else if(n.type==='image'){delete v.dataset.symbolKey;delete v.dataset.symbolRequested;updatePreviewImage(v,n,p,imageNodes);v.style.objectFit=n.fit==='fill'?'cover':n.fit==='stretch'?'fill':'contain';v.style.imageRendering=n.imageRendering||'auto'}
+else if(['nativeTextField','nativeTextView'].includes(n.type)){if(v.value!==n.text&&document.activeElement!==v)v.value=n.text;v.onblur=()=>{queueMicrotask(()=>{if(payload&&v.isConnected)render(payload)})};v.placeholder=n.placeholder;v.readOnly=editMode;if(n.type==='nativeTextField')v.type=n.inputType==='password'?'password':n.inputType==='number'?'number':'text'}
 else if(n.type==='nativeSwitch'){v.type='checkbox';v.checked=n.isOn;v.disabled=editMode||n.disabled}
 else if(n.type==='nativeSlider'){v.type='range';v.min=n.minimum;v.max=n.maximum;v.step='any';v.value=n.value;v.disabled=editMode||n.disabled}
 else if(n.type==='nativeSegment'||n.type==='nativeStepper'){
@@ -48,23 +125,31 @@ v.setAttribute('aria-selected',String(!!n.selected));if(n.type==='nativeButton')
 if(n.type==='scroll'&&performance.now()>(v._scrollingUntil||0)){v._setting=true;v.scrollLeft=n.scrollX;v.scrollTop=n.scrollY;requestAnimationFrame(()=>v._setting=false)}
 }
 let fontStyle=document.getElementById('fonts');if(!fontStyle){fontStyle=document.createElement('style');fontStyle.id='fonts';document.head.appendChild(fontStyle)}
-const css=p.assets.filter(a=>a.kind==='font').map(a=>`@font-face{font-family:"${a.postscript}";src:url('/asset?project=${p.projectID}&id=${a.id}&token=${TOKEN}')}`).join('');if(fontStyle.textContent!==css)fontStyle.textContent=css;
-renderNativeChrome(p,page);processNativeEffects(p);window.studioSelect(sourceSelection);root.style.width=page.width+'px';root.style.height=page.height+'px';root.style.transform=`scale(${402/page.width})`;resizePhone();api('/ack',{side:'web',revision:p.revision});window.webkit?.messageHandlers.studio?.postMessage({type:'rendered',revision:p.revision,route:page.id});}
+const css=p.assets.filter(a=>a.kind==='font').map(a=>`@font-face{font-family:"${a.postscript}";${a.weightRange?`font-weight:${a.weightRange.join(" ")};`:""}src:url('/asset?project=${p.projectID}&id=${a.id}&token=${TOKEN}')}`).join('');if(fontStyle.textContent!==css)fontStyle.textContent=css;
+if(probe&&probe.route!==page.id){window.__studioPerformance=null;probe.renderEndAt=Date.now();previewPerformanceMark(probe,'nodes');requestAnimationFrame(()=>{probe.rafAt=Date.now();previewPerformanceMark(probe,'firstRAF');requestAnimationFrame(()=>{previewPerformanceMark(probe,'secondRAF');window.webkit?.messageHandlers.studio?.postMessage({type:'performance',tag:probe.tag,hostMonotonicMs:probe.hostMonotonicMs,traceID:probe.traceID,eventID:probe.eventID,side:'html',projectID:p.projectID,revision:p.revision,route:page.id,unixMs:probe.start,inputToContentFrameMs:Date.now()-probe.start,metric:'synthetic-input-to-second-raf',visibleFrameVerified:false,stale:payload!==p,concurrentEvents:probe.concurrentEvents||0,monotonic:previewPerformanceSnapshot(probe),phases:{emit:probe.emitAt-probe.start,request:probe.requestAt-probe.start,response:probe.responseAt-probe.start,render:probe.renderAt-probe.start,renderEnd:probe.renderEndAt-probe.start,raf:probe.rafAt-probe.start}})});});}
+renderNativeChrome(p,page);previewPerformanceMark(probe,'chrome');processNativeEffects(p);window.studioSelect(sourceSelection);root.style.width=page.width+'px';root.style.height=page.height+'px';root.style.transform=`scale(${402/page.width})`;resizePhone();previewPerformanceMark(probe,'resize');api('/ack',{side:'web',revision:p.revision});window.webkit?.messageHandlers.studio?.postMessage({type:'rendered',revision:p.revision,route:page.id});previewPerformanceMark(probe,'renderComplete');if(probe&&probe.route!==page.id)previewPerformanceResources(probe,p,[...root.querySelectorAll('img')]);}
+function acceptRuntime(p){
+ // A polling response started before a click must never undo that click.
+ if(p.revision<revision || (p.revision===revision && p.projectID===payload?.projectID))return true;
+ if(p.reuseModel){
+  if(p.projectID!==payload?.projectID||p.modelHash!==payload?.modelHash)return false;
+  p={...p,model:payload.model,assets:payload.assets};
+ }
+ if(p.page&&p.model){revision=p.revision;render(p)}
+ return true;
+}
 async function poll(force=false){
+ if(document.hidden&&!force)return;
  if(busy){if(force)pollPending=true;return}busy=true;
  try{
   const query=new URLSearchParams({side:'web',after:String(force?-1:revision),project:payload?.projectID||'',model:payload?.modelHash||''});
   let p=await api('/runtime?'+query);
-  if(p.reuseModel){
-   if(p.projectID!==payload?.projectID||p.modelHash!==payload?.modelHash){revision=-1;payload=null;pollPending=true;return}
-   p={...p,model:payload.model,assets:payload.assets};
-  }
-  if(p.page&&p.model&&p.revision>=revision){revision=p.revision;render(p)}
+  if(!acceptRuntime(p)){revision=-1;payload=null;pollPending=true;return}
   error.style.display='none';
  }catch(e){error.textContent=e.message;error.style.display='block'}
  finally{busy=false;if(pollPending){pollPending=false;void poll(true)}}
 }
-setInterval(poll,150);function resizePhone(){document.getElementById('phone-stage').style.transform=`scale(${Math.min(innerWidth/456,innerHeight/910)})`}addEventListener('resize',resizePhone);resizePhone();poll();
+setInterval(poll,150);function resizePhone(){document.getElementById('phone-stage').style.transform=`scale(${Math.min(innerWidth/456,innerHeight/910)})`;if(payload){const byID=new Map(payload.page.nodes.map(n=>[n.id,n]));for(const n of payload.page.nodes)if(n.type==='image'&&!n.symbol&&!n.modelAsset&&views.has(n.id))updatePreviewImage(views.get(n.id),n,payload,byID)}}addEventListener('resize',resizePhone);resizePhone();poll();
 
 // Command+W toggles studio mode, but never steals a character from an editable field or IME.
 document.addEventListener('keydown',event=>{

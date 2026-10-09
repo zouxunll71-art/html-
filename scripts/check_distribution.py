@@ -5,7 +5,7 @@ import re,sys
 ROOT=Path(__file__).resolve().parents[1]
 EXCLUDED={'node_modules','__pycache__','.DS_Store','Workspace','Projects','artifacts','build'}
 def files(root=ROOT):
- for name in ['README.md','AGENTS.md','Install.command','.gitignore','package.json','package-lock.json']:
+ for name in ['README.md','RELEASE-CHECK.md','AGENTS.md','Install.command','.gitignore','package.json','package-lock.json']:
   yield root/name
  yield from root.glob('*.mjs')
  for folder in ['web','native','scripts','tests','engine']:

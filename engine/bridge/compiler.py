@@ -4,13 +4,13 @@ from functools import lru_cache
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from html.parser import HTMLParser
-from font_metadata import postscript_name
+from font_metadata import postscript_name,weight_range
 import ios_rules
 import structured_parser
 TAGS={'ui-page':'container','ui-column':'container','ui-row':'container','ui-stack':'container','ui-grid':'container','ui-scroll':'scroll','ui-text':'text','ui-image':'image','ui-icon':'image','ui-button':'nativeButton','ui-input':'nativeTextField','ui-textarea':'nativeTextView','ui-switch':'nativeSwitch','ui-checkbox':'nativeCheckbox','ui-slider':'nativeSlider','ui-progress':'nativeProgress','ui-spinner':'nativeSpinner','ui-segment':'nativeSegment','ui-stepper':'nativeStepper','ui-use':'use'}
 ATTRS={'id','name','class','style','asset','font','action','bind','when','repeat','key','group','component','placeholder','disabled','min','max','input-type','spans','options','step','styles','gradient','shadow','content','text-key','placeholder-key','option-keys','text-args','symbol','selected','semantic'}
 NUM={'width','height','left','top','right','bottom','gap','padding','font-size','font-weight','line-height','letter-spacing','border-radius','border-width','opacity','rotation','scale','columns','row-height','flex-grow'}
-ENUM={'display':{'flex','stack','grid'},'flex-direction':{'row','column'},'align-items':{'start','center','end','stretch'},'align-self':{'start','center','end','stretch'},'position':{'absolute','relative'},'overflow':{'hidden','visible'},'object-fit':{'fit','fill','stretch'},'text-align':{'left','center','right'},'font-family':{'sans','serif','monospace','cursive'}}
+ENUM={'image-rendering':{'auto','pixelated'},'display':{'flex','stack','grid'},'flex-direction':{'row','column'},'align-items':{'start','center','end','stretch'},'align-self':{'start','center','end','stretch'},'position':{'absolute','relative'},'overflow':{'hidden','visible'},'object-fit':{'fit','fill','stretch'},'text-align':{'left','center','right'},'font-family':{'sans','serif','monospace','cursive'}}
 COLORS={'color','background','border-color'}
 ACTION_FIELDS={'set':{'path','value'},'toggle':{'path'},'append':{'path','value'},'remove':{'path','key','value'},'update':{'path','key','id','value'},'if':{'when','then','else'},'push':{'page','params'},'replace':{'page','params'},'tab':{'page','params'},'back':set(),'present':{'page'},'dismiss':set(),'openURL':{'link'},'delay':{'duration','actions','scope'},'call':{'action'},'persist':{'key','value'},'restore':{'path','key','default'},'reset':set(),'animate':{'duration','delay','curve','actions'}}
 OPS={'eq','not','and','or','add','sub','gt','gte','lt','concat','length','if','trim','split','join','contains','map','filter','find','sum'}
@@ -19,7 +19,9 @@ ACTION_FIELDS.update({'generateID':{'path'},'forget':{'key'},'share':{'filename'
 TAGS.update({'ui-path':'path','ui-model':'model'})
 ATTRS.update({'points','profile','angle','elevation','closed'})
 ATTRS.update({'placement','model-asset','paint-options','analysis-action','runtime-only'})
-OPS.update({'revolveOBJ','at','mod'})
+OPS.update({'revolveOBJ','at','mod','dateFormat','wrapText'})
+ACTION_FIELDS['photoPreview']={'path','title','message','close'}
+ACTION_FIELDS['scrollTo']={'node','x','y'}
 def fail(file,message,line=1):raise ValueError(f'{file}:{line}: {message}')
 def load(path):
  def pairs(items):
@@ -47,6 +49,8 @@ def asset_metadata(path,kind,stamp):
   if len(header)!=12 or struct.unpack('<III',header)!=(0x46546c67,2,f.stat().st_size):fail(f,'Invalid GLB header')
  elif kind=='font':
   result['postscript']=postscript_name(f)
+  weights=weight_range(f)
+  if weights:result['weightRange']=weights
   if not result['postscript']:fail(f,'字体不可读')
  else:
   import subprocess
@@ -217,7 +221,7 @@ def compile_project(root):
  def expression(x):
   if isinstance(x,dict):
    if 'get' in x:
-    if set(x)!={'get'} or not re.fullmatch(r'(state|params|item|event|storage|index)(\.[A-Za-z0-9_-]+)*',str(x['get'])):fail('expression','无效 get 路径')
+    if set(x)!={'get'} or not re.fullmatch(r'(state|params|item|event|storage|index|clock|layout)(\.[A-Za-z0-9_-]+)*',str(x['get'])):fail('expression','无效 get 路径')
    elif 't' in x:
     if 'args' in x and not isinstance(x['args'],dict):fail('expression','Translation args must be an object')
     if set(x)-{'t','args'}:fail('expression','Unsupported translation expression')
@@ -300,8 +304,8 @@ def compile_project(root):
    if not isinstance(a,dict):fail('actions','每一步必须为对象')
    if a.get('type') not in ACTION_FIELDS or set(a)-ACTION_FIELDS[a['type']]-{'type'}:fail('actions','不支持的动作或参数 '+str(a))
    if a['type']=='call' and a.get('action') not in actions:fail('actions','Unknown called action')
-   if a['type']=='delay' and a.get('scope','page')!='page':fail('actions','Invalid delay scope')
-   required={'delay':{'duration','actions'},'call':{'action'},'openURL':{'link'},'set':{'path','value'},'toggle':{'path'},'append':{'path','value'},'remove':{'path','key','value'},'update':{'path','key','id','value'},'if':{'when','then'},'push':{'page'},'replace':{'page'},'tab':{'page'},'present':{'page'},'persist':{'key','value'},'restore':{'path','key','default'},'animate':{'duration','actions'}}
+   if a['type']=='delay' and a.get('scope','page') not in ('page','project'):fail('actions','Invalid delay scope')
+   required={'scrollTo':{'node','y'},'photoPreview':{'path','title','message','close'},'delay':{'duration','actions'},'call':{'action'},'openURL':{'link'},'set':{'path','value'},'toggle':{'path'},'append':{'path','value'},'remove':{'path','key','value'},'update':{'path','key','id','value'},'if':{'when','then'},'push':{'page'},'replace':{'page'},'tab':{'page'},'present':{'page'},'persist':{'key','value'},'restore':{'path','key','default'},'animate':{'duration','actions'}}
    if required.get(a['type'],set())-set(a):fail('actions','动作缺少必需字段 '+a['type'])
    if a['type']=='present' and pages.get(a.get('page'),{}).get('role')!='dialog':fail('actions','present 必须引用 dialog 页面')
    if a['type'] in ('push','replace','tab') and pages.get(a.get('page'),{}).get('role')=='dialog':fail('actions','普通路由不能引用 dialog 页面')
@@ -310,6 +314,7 @@ def compile_project(root):
    if a['type']=='animate' and (not 0<=a.get('duration',0)<=10 or a.get('curve','ease') not in ['linear','ease','spring']):fail('actions','动画时长 0–10 秒；curve 为 linear/ease/spring')
    if a['type']=='delay' and (type(a.get('duration')) not in (int,float) or not 0<a['duration']<=60):fail('actions','delay duration must be 0-60 seconds')
    if a['type']=='openURL' and a.get('link') not in links:fail('actions','Unknown link '+str(a.get('link')))
+   if a['type']=='scrollTo' and (not isinstance(a['node'],str) or not a['node'] or any(p in a['node'].split('/') for p in ('__proto__','constructor','prototype'))):fail('actions','Invalid scroll node')
    expression(a)
    for key in ('then','else','actions'):
     if key in a:check_actions(a[key],depth+1)

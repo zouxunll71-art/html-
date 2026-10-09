@@ -18,6 +18,8 @@ import { removeProject } from './project-removal.mjs';
 import {previewCatalog} from './preview-catalog.mjs';
 import {directoryInput,workingDirectory,pathKey} from './project-paths.mjs';
 import {resolveRuntime} from './runtime-paths.mjs';
+import {readHistoryTail} from './history-sync.mjs';
+import {FramePackets} from './frame-packets.mjs';
 const runtimePaths=resolveRuntime();
 
 const exec = promisify(execFile);
@@ -40,6 +42,8 @@ const capabilities=new Capabilities(rpc);
 const conversationMedia=new ConversationMedia(path.join(DATA,'conversation-media'));
 async function openDesktopProject(location){
   await exec(CODEX,['app',location],{timeout:15000});
+  await sidebarSync.read();
+  if(!sidebarSync.supports('project/list'))return {id:null,name:path.basename(location),roots:[{path:location}]};
   // Launching returns before the desktop commits its project. Wait for that
   // shared record; importing here races the desktop and creates a duplicate.
   for(let attempt=0;attempt<40;attempt++){
@@ -51,6 +55,8 @@ async function openDesktopProject(location){
 }
 async function registerStudioProject(p,notifyDesktop=false){
   await rpc.start();
+  await sidebarSync.read();
+  if(!sidebarSync.supports('project/list'))return null;
   // The supported desktop launcher updates the running app's project cache.
   // Launch before importing so the desktop and this client use one project identity.
   if(notifyDesktop)return (await openDesktopProject(p.sourcePath)).id;
@@ -59,7 +65,7 @@ async function registerStudioProject(p,notifyDesktop=false){
   const result=await rpc.call('project/import',{name:p.name,roots:[{path:p.sourcePath}],idempotencyKey:'html-studio:'+p.id});sidebarSync.invalidate();return result.project.id;
 }
 const readPreviewCatalog=previewCatalog(()=>studio('/projects?summary=1'));
-async function sidebar(force=false){const [native,catalog]=await Promise.all([readPreviewCatalog(),sidebarSync.read(force)]);sidebarSnapshot=mergedSidebar(native,registry.conversations,catalog,registry.previewBindings,registry.hiddenNativeProjects);return sidebarSnapshot;}
+async function sidebar(force=false){const [native,catalog]=await Promise.all([readPreviewCatalog(),sidebarSync.read(force)]);sidebarSnapshot=mergedSidebar(native,registry.conversations,catalog,registry.previewBindings,registry.hiddenNativeProjects);const status=await studio('/status').catch(()=>({}));const enabled=new Set(status.enabledProjects||[]);sidebarSnapshot.projects=sidebarSnapshot.projects.map(p=>({...p,workbenchEnabled:enabled.has(p.nativeProjectId||p.id)}));return sidebarSnapshot;}
 let sequence = 0, startupError = '', bootingStudio = null, studioReady = false;
 const events = [];
 const symbolCache = new Map();
@@ -104,7 +110,7 @@ async function ensureStudio() {
 }
 async function project(id) { const {projects} = await sidebar(); const p = projects.find(p => p.id === id); if (!p) throw new Error('项目不存在，请重新选择项目'); return p; }
 function conversation(id) { const c = registry.conversations.find(c => c.id === id)||sidebarSnapshot.conversations.find(c=>c.id===id); if (!c) throw new Error('对话暂未同步，请刷新列表后重试'); return c; }
-async function activate(id) { const p=await project(id); if(p.nativePreview)await studio('/activate-project', { id:p.nativeProjectId||id }); registry.selectedProject = id; save(); }
+async function activate(id) { const p=await project(id); if(p.nativePreview&&p.workbenchEnabled)await studio('/activate-project', { id:p.nativeProjectId||id }); registry.selectedProject = id; save(); }
 const instructions = `你正在用户自己的 HTML 原生工作台客户端中工作。当前工作目录就是此 App 的独立源目录。先读取该目录 AGENTS.md 和 HTML 编写规范，用户让修改时直接编辑文件并验证，不要只给建议。系统允许多个项目同时开发，每个对话只操作自己的工作目录。工作台一次显示一个项目的 HTML 和 UIKit 预览；后台任务不会因切换预览而停止，切回项目后同步其最新源码。不要因后台验证而自动激活项目、抢占其他项目的预览；通常无需另开浏览器或模拟器、无需重启工作台。只修改用户要求的项目，不要修改其他项目、客户端或官方 Codex 安装包。遵循截图和原图，不做未经要求的重新设计。用户未要求时不使用子代理。用中文清晰报告实际修改和验证结果，不把未测试的内容说成已验证。`;
 async function resume(id) {
   const c=conversation(id),linkedProject=sidebarSnapshot.projects.find(p=>p.id===c.projectId);
@@ -121,12 +127,12 @@ async function resume(id) {
   }
   loaded.add(c.id);return c.id;
 }
-async function history(id,tail=false) {
+async function history(id,tail=false,afterTurn) {
   // Viewing an unsent draft must not resume/recreate it or change its identity.
   if(conversation(id).hasStarted===false)return {id,turns:[]};
   if(tail){
     const c=conversation(id);
-    try{const page=await rpc.call('thread/turns/list',{threadId:id,limit:2,sortDirection:'desc',itemsView:'full'});return {id,cwd:c.sourcePath,turns:page.data.reverse()};}
+    try{return {id,cwd:c.sourcePath,...await readHistoryTail(rpc,id,afterTurn)};}
     catch(error){if(c.hasStarted===false&&/no rollout|not found/.test(error.message))return {id,turns:[]};throw error;}
   }
   const thread = (await rpc.call('thread/read', { threadId: id, includeTurns: false })).thread;
@@ -139,13 +145,13 @@ async function history(id,tail=false) {
 async function createConversation(projectId) {
   const p = await project(projectId); await activate(projectId); await rpc.start();
   await capabilities.read(p.sourcePath);
-  if(!p.codexId){const imported=await rpc.call('project/import',{name:p.name,roots:[{path:p.sourcePath}],idempotencyKey:'html-studio:'+p.id});p.codexId=imported.project.id;sidebarSync.invalidate();}
+  if(!p.codexId&&sidebarSync.supports('project/list')){const imported=await rpc.call('project/import',{name:p.name,roots:[{path:p.sourcePath}],idempotencyKey:'html-studio:'+p.id});p.codexId=imported.project.id;sidebarSync.invalidate();}
   const result = await rpc.call('thread/start', { cwd: workingDirectory({},p), projectId:p.codexId, approvalPolicy: 'never', sandbox: 'danger-full-access', developerInstructions: p.nativePreview?instructions+'\n手机预览源码目录：'+(p.previewSourcePath||p.sourcePath)+'。先阅读此目录 AGENTS.md；工作范围仅限 HTMLNativeStudio 内。未点击系统导出前，禁止修改外层 Xcode 工程、应用源码、资源、Info.plist、签名和构建配置；不得自行执行迁移。导出由工作台负责。':undefined, serviceName: 'html_native_studio_client' });
   const c = { id: result.thread.id, projectId, sourcePath: workingDirectory({},p), title: '新对话', hasStarted:false, createdAt: Date.now() };
   registry.conversations.unshift(c); sidebarSync.invalidate(); registry.selectedThread = c.id; save(); loaded.add(c.id); return { conversation: c, thread: result.thread, model: result.model };
 }
 function json(res, data, code = 200) { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' }); res.end(JSON.stringify(data)); }
-function text(res, body, type, code = 200) { res.writeHead(code, { 'Content-Type': type, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' }); res.end(body); }
+function text(res, body, type, code = 200, cache = 'no-store') { res.writeHead(code, { 'Content-Type': type, 'Cache-Control': cache, 'X-Content-Type-Options': 'nosniff' }); res.end(body); }
 async function readBody(req) { let size = 0, chunks = []; for await (const chunk of req) { size += chunk.length; if (size > 24 * 1024 * 1024) throw new Error('附件过大，请使用小于 16 MB 的文件'); chunks.push(chunk); } return JSON.parse(Buffer.concat(chunks).toString() || '{}'); }
 const GET_PROXY = new Set(['/status', '/project', '/runtime', '/editor-state', '/source-layers', '/asset', '/symbol', '/symbol-image', '/export-status', '/run-ios-status', '/conversion-audit', '/versions']);
 const POST_PROXY = new Set(['/event', '/ack', '/ack-effects', '/mode', '/preview', '/save', '/restore-follow', '/copy-source', '/export-start', '/run-ios', '/repair-sync', '/ios-input-connect', '/ios-input-disconnect', '/ios-input', '/chrome-layout', '/browser-state', '/close-native-browser']);
@@ -168,34 +174,36 @@ async function proxy(req, res, url) {
   url.searchParams.delete('token');
   const body = req.method === 'POST' ? await readBody(req) : undefined;
   if (body !== undefined && req.headers['x-client-token'] !== CSRF) return json(res, { error: '请求校验失败，请刷新页面' }, 403);
-  const upstream = await fetch(`http://127.0.0.1:${config().port}${endpoint}${url.search}`, { method: req.method, headers: { 'X-Studio-Token': token(), 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(90000) });
-  text(res, Buffer.from(await upstream.arrayBuffer()), upstream.headers.get('content-type') || 'application/json', upstream.status);
+  const traceID = endpoint === '/event' && typeof req.headers['x-studio-trace-id'] === 'string' && /^[A-Za-z0-9_.:-]{1,160}$/.test(req.headers['x-studio-trace-id']) ? req.headers['x-studio-trace-id'] : null;
+  const upstream = await fetch(`http://127.0.0.1:${config().port}${endpoint}${url.search}`, { method: req.method, headers: { 'X-Studio-Token': token(), 'Content-Type': 'application/json', ...(traceID ? { 'X-Studio-Trace-ID': traceID } : {}) }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(90000) });
+  text(res, Buffer.from(await upstream.arrayBuffer()), upstream.headers.get('content-type') || 'application/json', upstream.status, endpoint==='/asset'&&upstream.ok ? upstream.headers.get('cache-control')||'no-store' : 'no-store');
 }
-// One lossless, native-resolution simulator stream for both native and web clients.
-let frame = null, frameTime = 0, frameReaderStarted = false, frameProcess = null;
+// One native-resolution simulator stream for both native and web clients.
+let frame = null, frameTime = 0, frameReaderStarted = false, frameProcess = null, lastFramePull = 0;
 const frameClients = new Set();
 function framePacket(image) { const header=Buffer.alloc(4);header.writeUInt32BE(image.length);return Buffer.concat([header,image]); }
 async function frames() {
  if(frameReaderStarted)return;frameReaderStarted=true;
- for(;;){
+ for(;frameClients.size || Date.now()-lastFramePull<2000;){
   try{
    const controller=new AbortController();frameProcess={kill:()=>controller.abort()};
    const upstream=await fetch(`http://127.0.0.1:${config().port}/ios-stream`,{headers:{'X-Studio-Token':token()},signal:controller.signal});
    if(!upstream.ok)throw Error('模拟器画面暂不可用');
-   let buffer=Buffer.alloc(0);
+   const decoder=new FramePackets();
    for await(const chunk of upstream.body){
-    buffer=Buffer.concat([buffer,chunk]);
-    while(buffer.length>=4){
-     const size=buffer.readUInt32BE(0);if(!size||size>20000000)throw Error('Invalid frame');
-     if(buffer.length<size+4)break;
-     frame=Buffer.from(buffer.subarray(4,size+4));frameTime=Date.now();buffer=buffer.subarray(size+4);
-     const packet=framePacket(frame);for(const client of frameClients)if(client.writableLength===0)client.write(packet);
+    if(!frameClients.size && Date.now()-lastFramePull>=2000){controller.abort();break}
+    const packet=decoder.push(chunk);
+    if(packet){
+     frame=packet.subarray(4);frameTime=Date.now();
+     for(const client of frameClients)if(client.writableLength===0)client.write(packet);
     }
    }
+   decoder.end();
   }catch{}
   frame=null;frameTime=0;frameProcess=null;
   await new Promise(r=>setTimeout(r,500));
  }
+ frameReaderStarted=false;frameProcess=null;
 }
 async function windowAction(action) {
   const c = config(), studioApp = path.join(ROOT, 'build/studio/Build/Products/Debug-maccatalyst/HTMLNativeStudio.app'), sim = path.join(c.developerDir, 'Applications/Simulator.app');
@@ -235,9 +243,9 @@ async function handle(req, res) {
     return text(res,fs.readFileSync(media.file),media.type);
   }
   if(req.method==='GET' && url.pathname==='/api/ios-stream'){
-    frames();res.writeHead(200,{'Content-Type':'application/x-studio-frames','Cache-Control':'no-store'});
+    res.writeHead(200,{'Content-Type':'application/x-studio-frames','Cache-Control':'no-store'});
     if(frame && Date.now()-frameTime<8000)res.write(framePacket(frame));
-    frameClients.add(res);res.on('close',()=>frameClients.delete(res));return;
+    frameClients.add(res);frames();res.on('close',()=>{frameClients.delete(res);if(!frameClients.size&&Date.now()-lastFramePull>=2000)frameProcess?.kill()});return;
   }
   if (url.pathname.startsWith('/studio/')) return proxy(req, res, url);
   if (req.method === 'GET' && url.pathname === '/api/events') {
@@ -248,7 +256,7 @@ async function handle(req, res) {
     clients.add(res); const heartbeat = setInterval(() => res.write(': heartbeat\n\n'), 15000); req.on('close', () => { clients.delete(res); clearInterval(heartbeat); }); return;
   }
   if (req.method === 'GET' && url.pathname === '/api/frame') {
-    frames(); if (!frame || Date.now() - frameTime > 8000) return json(res, { error: '正在连接原生模拟器' }, 503);
+    lastFramePull=Date.now();frames(); if (!frame || Date.now() - frameTime > 8000) return json(res, { error: '正在连接原生模拟器' }, 503);
     res.setHeader('X-Frame-Time', String(frameTime)); return text(res, frame, frame[0]===0xff?'image/jpeg':'image/png');
   }
   if (req.method === 'GET' && url.pathname === '/api/symbol') {
@@ -259,10 +267,10 @@ async function handle(req, res) {
     return json(res, { data: symbolCache.get(key) });
   }
   if (req.method === 'GET' && url.pathname === '/api/state') {
-    if(url.searchParams.has('sidebar')){const synced=await sidebar(url.searchParams.has('refresh'));return json(res,{projects:synced.projects,registry:{conversations:synced.conversations},running:Object.fromEntries(running)});}
+    if(url.searchParams.has('sidebar')){const synced=await sidebar(url.searchParams.has('refresh'));return json(res,{projects:synced.projects,syncWarnings:synced.syncWarnings,registry:{conversations:synced.conversations},running:Object.fromEntries(running)});}
     void ensureStudio().catch(error=>{startupError=error.message});
     const [synced, status] = await Promise.all([sidebar(url.searchParams.has('refresh')), studio('/status').catch(error=>({active:null,error:'预览服务暂不可用：'+error.message,conflicts:[],editing:true,linked:true}))]);
-    return json(res, { projects:synced.projects, sections:synced.sections, syncedAt:synced.updatedAt, status, registry:{...registry,conversations:synced.conversations}, running: Object.fromEntries(running), pendingRequests: [...requests.values()], codexReady: rpc.ready, startupError, sequence });
+    return json(res, { projects:synced.projects, sections:synced.sections, syncedAt:synced.updatedAt, syncWarnings:synced.syncWarnings, status, registry:{...registry,conversations:synced.conversations}, running: Object.fromEntries(running), pendingRequests: [...requests.values()], codexReady: rpc.ready, startupError, sequence });
   }
   if (req.method === 'GET' && url.pathname === '/api/codex') {
     await rpc.start(); const [account, models] = await Promise.all([rpc.call('account/read', {}), rpc.call('model/list', { includeHidden: false })]);
@@ -275,7 +283,7 @@ async function handle(req, res) {
   if(req.method==='GET'&&url.pathname==='/api/project/preview-options')return json(res,{projects:await studio('/projects')});
   if (req.method === 'GET' && url.pathname === '/api/history') {
     await sidebar();
-    const thread=conversationMedia.thread(await history(url.searchParams.get('id'),url.searchParams.has('tail')));
+    const thread=conversationMedia.thread(await history(url.searchParams.get('id'),url.searchParams.has('tail'),url.searchParams.has('afterTurn')?url.searchParams.get('afterTurn'):undefined));
     const active=running.get(thread.id);const finished=thread.turns.find(t=>t.id===active&&['completed','failed','interrupted'].includes(t.status));
     if(finished){running.delete(thread.id);publish({method:'turn/completed',params:{threadId:thread.id,turn:finished}});}
     const revision=crypto.createHash('sha256').update(JSON.stringify(thread.turns)).digest('hex');
@@ -320,6 +328,7 @@ async function handle(req, res) {
         else {const source=await ensurePreviewSource(p.sourcePath,p.name,ROOT);target=await studio('/import',{path:source});}
         registry.previewBindings||={};registry.previewBindings[p.codexId]=target.id;loaded.clear();save();await sidebar(true);await activate(p.id.startsWith('codex:')?p.id:'codex:'+p.codexId);return json(res,{ok:true,projectId:'codex:'+p.codexId,sourcePath:target.sourcePath});
       }
+      case '/api/project/workbench': {const p=await project(body.id);if(!p.nativePreview)throw Error('请先接入工作台');const result=await studio('/workbench',{id:p.nativeProjectId||p.id,enabled:body.enabled});if(body.enabled){registry.selectedProject=p.id;save()}else if(registry.selectedProject===p.id){lastFramePull=0;frameProcess?.kill();frame=null;frameTime=0;for(const client of frameClients)client.end();frameClients.clear()}return json(res,result);}
       case '/api/project/activate': await activate(body.id); registry.selectedThread = null; save(); return json(res, { ok: true });
       case '/api/thread/create': return json(res, await createConversation(body.projectId));
       case '/api/thread/select': { const synced=sidebarSnapshot.conversations.find(c=>c.id===body.id),c=conversation(body.id);if(synced)Object.assign(c,synced);if(c.projectId)await activate(c.projectId);else registry.selectedProject=null;
@@ -427,7 +436,7 @@ export const server = http.createServer((req, res) => handle(req, res).catch(err
 server.listen(PORT, '127.0.0.1', () => {
   console.log(`HTML Codex 工作台 ${ORIGIN}`);
   rpc.start().catch(error => { startupError = error.message; });
-  ensureStudio().then(async () => { frames(); await windowAction('hide'); studioReady = true; }).catch(error => { startupError = error.message; });
+  ensureStudio().then(async () => { await windowAction('hide'); studioReady = true; }).catch(error => { startupError = error.message; });
 });
 server.on('error', error => { console.error(error.message); process.exitCode = 1; rpc.stop(); });
 process.on('SIGTERM', () => { frameProcess?.kill();rpc.stop(); server.close(); process.exit(0); });

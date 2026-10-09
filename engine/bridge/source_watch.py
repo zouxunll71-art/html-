@@ -6,7 +6,7 @@ def signature(root):
  root=Path(root);out=[]
  ignored={'.git','node_modules','ios-overrides','.studio','build','__pycache__'}
  for directory,dirs,files in os.walk(root,followlinks=False):
-  dirs[:]=[d for d in dirs if d not in ignored and not (Path(directory)==root and d=='HTMLNativeStudio')]
+  dirs[:]=[d for d in dirs if d not in ignored and not (Path(directory)==root and d in {'HTMLNativeStudio','qa'})]
   for name in files:
    if name=='.DS_Store':continue
    p=Path(directory)/name

@@ -5,7 +5,7 @@ from pathlib import Path
 from source_stamp import fingerprint
 # Legacy desktop shortcuts must open the installed current client, without restarting its engine.
 client=Path('/Applications/HTML Native Studio.app')
-if '--headless' not in sys.argv and client.is_dir():
+if '--headless' not in sys.argv and '--browser-only' not in sys.argv and client.is_dir():
  subprocess.run(['/usr/bin/open',str(client)],check=True)
  sys.exit(0)
 ROOT=Path(__file__).resolve().parents[1];os.chdir(ROOT)
@@ -34,10 +34,16 @@ runtime=ROOT/'build/runtime/Build/Products/Debug-iphonesimulator/HTMLNativeRunti
 stamp_path=ROOT/'artifacts/build-source.json'
 try:built=json.loads(stamp_path.read_text()).get('fingerprint')
 except Exception:built=None
-headless='--headless' in sys.argv
+browser_only='--browser-only' in sys.argv
+headless='--headless' in sys.argv or browser_only
+if browser_only:env['STUDIO_BROWSER_ONLY']='1'
 if headless:env['STUDIO_HEADLESS']='1'
-needs_build=(not headless and not studio.exists()) or not runtime.exists() or not (ROOT/'build/ios-frames').exists() or not (ROOT/'build/ios-input').exists() or built!=fingerprint('build')
-if needs_build:
+needs_build=(not headless and not studio.exists()) or not runtime.exists() or not (ROOT/'build/ios-frames').exists() or not (ROOT/'build/ios-input').exists() or not (ROOT/'build/preview-png').exists() or built!=fingerprint('build')
+if browser_only:
+ symbol=ROOT/'build/browser-symbols';source=ROOT/'scripts/browser_symbols.swift'
+ if not symbol.exists() or symbol.stat().st_mtime<source.stat().st_mtime:
+  run(['xcrun','swiftc',source,'-o',symbol],timeout=120)
+if needs_build and not browser_only:
  executable=str(studio/'Contents/MacOS/HTMLNativeStudio')
  if any(command==executable or command.startswith(executable+' ') for _,_,command in processes()):
   raise RuntimeError('工作台有源码更新。请先保存布局并退出当前 HTML 原生工作台，再双击桌面图标；随后会自动构建新版。')
@@ -50,7 +56,9 @@ if loaded.get('ok') and loaded.get('version')!=fingerprint('service'):
  # Verify the old service command before terminating exactly this installation.
  services=[(pid,ppid,cmd) for pid,ppid,cmd in processes() if cmd.endswith(str(ROOT/'bridge/server.py')) and ('python' in cmd.split()[0].lower())]
  if len(services)!=1:raise RuntimeError('无法确认旧同步服务的进程归属，请手动退出旧版本后重开。')
- restore=request('/status');pid=services[0][0]
+ restore=request('/status')
+ if browser_only and restore.get('enabledProjects'):raise RuntimeError('工作台正在使用旧版服务，请保存后关闭工作台再加载浏览器预览更新；未中断现有项目。')
+ pid=services[0][0]
  children=[child for child,parent,cmd in processes() if parent==pid and str(ROOT/'bridge/engine_worker.js') in cmd]
  print('正在更新本机同步服务，保留项目和布局…',flush=True)
  os.kill(pid,signal.SIGTERM)
@@ -73,6 +81,9 @@ if restore and restore.get('active'):
  request('/activate-project',{'id':restore['active']})
  # Restore flags without copying one side's session over the other.
  request('/restore-mode',{'linked':restore.get('linked',True),'editing':restore.get('editing',True)})
+if headless:
+ print('后台服务已就绪；模拟器等待用户开启工作台。',flush=True)
+ sys.exit(0)
 print('正在准备独立 iOS 模拟器…',flush=True)
 devices=json.loads(run(['xcrun','simctl','list','devices','available','--json']).stdout)['devices']
 device=next((d for group in devices.values() for d in group if d['udid']==config['ios']),None)
@@ -95,4 +106,3 @@ if '--headless' not in sys.argv:
  run(['open','-gj',studio] if quiet else ['open',studio])
 else:
  print('后台服务与模拟器已就绪，由新版客户端显示工作台。',flush=True)
-

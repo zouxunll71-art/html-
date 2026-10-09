@@ -16,6 +16,7 @@ final class NativeNavigationHost:UIViewController,UITabBarControllerDelegate,UIN
  let tabs=UITabBarController()
  var tabNavigation:[String:UINavigationController]=[:]
  var plainNavigation:UINavigationController?
+ var tabStyle="";var navigationStyles:[ObjectIdentifier:String]=[:]
  var signature="",applying=false,expectedDepth=1
  var scene:NativeSceneController?
  var onEvent:(([String:Any])->Void)?
@@ -33,15 +34,23 @@ final class NativeNavigationHost:UIViewController,UITabBarControllerDelegate,UIN
   let entries=chrome["tabs"] as? [[String:Any]] ?? [],stack=chrome["stack"] as? [[String:Any]] ?? []
   let nextSignature=entries.compactMap{$0["page"] as? String}.joined(separator:"|")
   if signature != nextSignature || tabs.viewControllers==nil {
-   signature=nextSignature;tabNavigation.removeAll()
+   signature=nextSignature;tabNavigation.removeAll();navigationStyles.removeAll();tabStyle=""
    let controllers=entries.map {entry -> UIViewController in
     let route=entry["page"] as? String ?? "",nav=UINavigationController(rootViewController:NativeRouteController(route));nav.delegate=self;tabNavigation[route]=nav;return nav
    };tabs.setViewControllers(controllers,animated:false)
   }
   let tint=UIColor(studioHex:chrome["tint"] as? String ?? "#007AFF"),background=UIColor(studioHex:chrome["background"] as? String ?? "#FFFFFF")
-  tabs.tabBar.tintColor=tint
-  let tabAppearance=UITabBarAppearance();tabAppearance.configureWithOpaqueBackground();tabAppearance.backgroundColor=background;tabs.tabBar.standardAppearance=tabAppearance;tabs.tabBar.scrollEdgeAppearance=tabAppearance
-  for entry in entries {if let route=entry["page"] as? String,let nav=tabNavigation[route]{nav.tabBarItem=UITabBarItem(title:entry["title"] as? String,image:UIImage(systemName:entry["symbol"] as? String ?? ""),tag:0)}}
+  let styleKey=(chrome["tint"] as? String ?? "#007AFF")+":"+(chrome["background"] as? String ?? "#FFFFFF")
+  if tabStyle != styleKey{
+   tabStyle=styleKey;tabs.tabBar.tintColor=tint
+   let tabAppearance=UITabBarAppearance();tabAppearance.configureWithOpaqueBackground();tabAppearance.backgroundColor=background;tabs.tabBar.standardAppearance=tabAppearance;tabs.tabBar.scrollEdgeAppearance=tabAppearance
+  }
+  for entry in entries {if let route=entry["page"] as? String,let nav=tabNavigation[route]{
+   let title=entry["title"] as? String,symbol=entry["symbol"] as? String ?? ""
+   if nav.tabBarItem.title != title || nav.tabBarItem.accessibilityIdentifier != symbol{
+    let item=UITabBarItem(title:title,image:UIImage(systemName:symbol),tag:0);item.accessibilityIdentifier=symbol;nav.tabBarItem=item
+   }
+  }}
   let root=stack.first?["page"] as? String ?? "",nav:UINavigationController
   if chrome["hasTabs"] as? Bool==true,let selected=tabNavigation[root] {
    if let plain=plainNavigation,plain.parent != nil{detach(plain)}
@@ -53,17 +62,21 @@ final class NativeNavigationHost:UIViewController,UITabBarControllerDelegate,UIN
   }
   activeNavigation=nav
   let transparentTop=chrome["topBarTransparent"] as? Bool ?? false
+  let navStyle=styleKey+":"+String(transparentTop)
+  if navigationStyles[ObjectIdentifier(nav)] != navStyle{
+   navigationStyles[ObjectIdentifier(nav)]=navStyle
   let appearance=UINavigationBarAppearance()
   if transparentTop {appearance.configureWithTransparentBackground();appearance.backgroundColor = .clear;appearance.backgroundEffect=nil;appearance.shadowColor = .clear}
   else {appearance.configureWithOpaqueBackground();appearance.backgroundColor=background}
   nav.navigationBar.standardAppearance=appearance;nav.navigationBar.scrollEdgeAppearance=appearance
   nav.navigationBar.compactAppearance=appearance;nav.navigationBar.compactScrollEdgeAppearance=appearance
   nav.navigationBar.isTranslucent=transparentTop;nav.navigationBar.tintColor=tint
+  }
   var controllers=[UIViewController]()
   for (index,entry) in stack.enumerated(){
    let route=entry["page"] as? String ?? ""
    let controller=(nav.viewControllers.indices.contains(index) ? nav.viewControllers[index] as? NativeRouteController:nil).flatMap{$0.route==route ? $0:nil} ?? NativeRouteController(route)
-   controller.title=entry["title"] as? String;controller.hidesBottomBarWhenPushed=index>0
+   if controller.navigationItem.title != entry["title"] as? String{controller.navigationItem.title=entry["title"] as? String};controller.hidesBottomBarWhenPushed=index>0
    if let back=entry["backTitle"] as? String{controller.navigationItem.backButtonTitle=back}else{controller.navigationItem.backButtonDisplayMode = .minimal}
    let buttons=entry["buttons"] as? [[String:Any]] ?? []
    func items(_ side:String)->[UIBarButtonItem]{buttons.filter{($0["side"] as? String ?? "right")==side}.map {button in

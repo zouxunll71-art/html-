@@ -1,6 +1,39 @@
 import UIKit
 import CoreText
+
+// Demand and request identity are separate from cached editor data. Suspending
+// the editor invalidates work without deleting its selection, assets or nodes.
+struct SourcePreviewDemand {
+ struct Ticket:Equatable {let generation:UInt64;let revision:Int}
+ private(set) var generation:UInt64=0
+ private(set) var loading=false
+ private(set) var needsRefresh=true
+ mutating func markChanged(){needsRefresh=true}
+ mutating func suspend(){generation &+= 1;loading=false;needsRefresh=true}
+ mutating func begin(allowed:Bool,revision:Int)->Ticket? {
+  guard allowed,!loading else{return nil}
+  generation &+= 1;loading=true;needsRefresh=false
+  return Ticket(generation:generation,revision:revision)
+ }
+ func owns(_ ticket:Ticket)->Bool {ticket.generation==generation}
+ func accepts(_ ticket:Ticket,allowed:Bool,revision:Int)->Bool {owns(ticket) && allowed && ticket.revision==revision}
+ mutating func finish(_ ticket:Ticket,allowed:Bool,revision:Int)->Bool {
+  guard owns(ticket),loading else{return false}
+  loading=false
+  guard accepts(ticket,allowed:allowed,revision:revision) else{needsRefresh=true;return false}
+  return true
+ }
+}
+
 extension StudioController {
+ var sourcePreviewAllowed:Bool {!running && !view.isHidden && inspectorTabs.selectedSegmentIndex==1 && !sourceBrowser.isHidden}
+ func cancelSourcePreviewWork(){
+  sourceThumbnailWork?.cancel();sourceThumbnailWork=nil
+  sourceDecodeOperations.values.forEach{$0.cancel()};sourceDecodeOperations.removeAll()
+  sourcePendingAssets.removeAll()
+ }
+ func suspendSourcePreview(){sourcePreviewDemand.suspend();cancelSourcePreviewWork()}
+ func updateSourcePreviewMode(){if sourcePreviewAllowed{loadSourceLayers()}else{suspendSourcePreview()}}
  func setupSourceBrowser(){
   inspectorTabs.selectedSegmentIndex=0;inspectorTabs.addAction(UIAction{[weak self]_ in self?.showInspectorMode()},for:.valueChanged);view.addSubview(inspectorTabs);view.addSubview(sourceBrowser);setupIOSBrowser()
   sourceBrowser.thumbnail={[weak self] n in self?.sourceThumbnail(n)}
@@ -9,7 +42,7 @@ extension StudioController {
   sourceBrowser.onDrop={[weak self]id,point,window in guard let self=self else{return};let location=self.left.convert(point,from:window);guard self.left.screenRect.contains(location) else{self.setStatus("请把资源拖到左侧 iOS 手机里面");return};self.copySource(id,point:self.left.logical(location))}
   showInspectorMode()
  }
- func showInspectorMode(){let mode=inspectorTabs.selectedSegmentIndex;sourceBrowser.isHidden = mode != 1;iosBrowser.isHidden = mode != 2;inspector.isHidden = mode != 0;if mode==1{loadSourceLayers()}else if mode==2{refreshIOSBrowser()};view.setNeedsLayout()}
+ func showInspectorMode(){let mode=inspectorTabs.selectedSegmentIndex;sourceBrowser.isHidden = mode != 1;iosBrowser.isHidden = mode != 2;inspector.isHidden = mode != 0;updateSourcePreviewMode();if mode==2{refreshIOSBrowser()};view.setNeedsLayout()}
  func highlightSource(_ id:String?){sourceSelected=id
   let value=(try? JSONSerialization.data(withJSONObject:[id as Any? ?? NSNull()])).flatMap{String(data:$0,encoding:.utf8)} ?? "[null]"
   web.evaluateJavaScript("window.studioSelect?.(\(value)[0])",completionHandler:nil)
@@ -23,9 +56,15 @@ extension StudioController {
   inspectorTabs.selectedSegmentIndex=1;highlightSource(id);showInspectorMode();loadSourceLayers(focus:id)
  }
  func loadSourceLayers(focus:String?=nil){
-  guard let p=project else{return};if let focus=focus{pendingSourceFocus=focus};guard !sourceLoading else{return};sourceLoading=true
+  guard let p=project else{return};if let focus=focus{pendingSourceFocus=focus}
+  guard let ticket=sourcePreviewDemand.begin(allowed:sourcePreviewAllowed,revision:sourceFrameRevision) else{return}
+  cancelSourcePreviewWork()
   Bridge.shared.request("/source-layers"){[weak self]result in
-   guard let self=self else{return};self.sourceLoading=false;guard self.project?.id==p.id else{return}
+   guard let self=self,self.sourcePreviewDemand.owns(ticket) else{return}
+   let eligible=self.sourcePreviewAllowed && self.project?.id==p.id && self.project?.compileRevision==p.compileRevision
+   guard self.sourcePreviewDemand.finish(ticket,allowed:eligible,revision:self.sourceFrameRevision) else{
+    if self.sourcePreviewAllowed,self.sourcePreviewDemand.needsRefresh{self.loadSourceLayers()};return
+   }
    switch result{case .failure(let e):self.setStatus(e.localizedDescription)
    case .success(let data):
     guard let dataObject=try? JSONSerialization.jsonObject(with:data) as? [String:Any],dataObject["projectID"] as? String==p.id,let raw=dataObject["raw"] as? [String:Any],let frame=dataObject["frame"] as? [String:Any],let nodes=frame["nodes"],let bytes=try? JSONSerialization.data(withJSONObject:nodes),let decoded=try? JSONDecoder().decode([StudioNode].self,from:bytes) else{return}
@@ -33,13 +72,47 @@ extension StudioController {
     self.thumbnailScene.loadViewIfNeeded();self.thumbnailScene.view.frame=CGRect(x:0,y:0,width:raw["width"] as? Double ?? 402,height:raw["height"] as? Double ?? 874);self.thumbnailScene.assetProvider={[weak self] id in self?.assetCache[id]};self.thumbnailScene.apply(raw,animated:false);self.thumbnailScene.view.layoutIfNeeded()
     let focus=self.pendingSourceFocus;self.pendingSourceFocus=nil;self.sourceBrowser.update(decoded,projectID:p.id,signature:self.sourceSignature,focus:focus)
     let visibleAssets=Set(decoded.map(\.asset))
-    for asset in p.assets where (asset.kind=="font" || visibleAssets.contains(asset.id)) && self.assetCache[asset.id]==nil && !self.sourcePendingAssets.contains(asset.id) && !self.sourceLoadedFonts.contains(asset.id){self.sourcePendingAssets.insert(asset.id);Bridge.shared.request("/asset?project=\(p.id)&id=\(asset.id)"){[weak self]r in guard let self=self else{return};self.sourcePendingAssets.remove(asset.id);guard self.project?.id==p.id,case .success(let d)=r else{return};if asset.kind=="font"{self.sourceLoadedFonts.insert(asset.id);let url=FileManager.default.temporaryDirectory.appendingPathComponent(asset.file);try? d.write(to:url);CTFontManagerRegisterFontsForURL(url as CFURL,.process,nil)}else{AssetImages.queue.addOperation{let image=AssetImages.decode(d);DispatchQueue.main.async{guard self.project?.id==p.id else{return};self.assetCache[asset.id]=image;self.scheduleSourceThumbnails()}}};self.scheduleSourceThumbnails()}}
+    for asset in p.assets where (asset.kind=="font" || visibleAssets.contains(asset.id)) && self.assetCache[asset.id]==nil && !self.sourcePendingAssets.contains(asset.id) && !self.sourceLoadedFonts.contains(asset.id){
+     self.sourcePendingAssets.insert(asset.id)
+     Bridge.shared.request("/asset?project=\(p.id)&id=\(asset.id)"){[weak self]r in
+      guard let self=self,self.sourcePreviewDemand.accepts(ticket,allowed:self.sourcePreviewAllowed,revision:self.sourceFrameRevision),self.project?.id==p.id,self.project?.compileRevision==p.compileRevision else{return}
+      self.sourcePendingAssets.remove(asset.id)
+      guard case .success(let data)=r else{return}
+      if asset.kind=="font"{
+       self.sourceLoadedFonts.insert(asset.id);let url=FileManager.default.temporaryDirectory.appendingPathComponent(asset.file);try? data.write(to:url);CTFontManagerRegisterFontsForURL(url as CFURL,.process,nil);self.scheduleSourceThumbnails()
+      }else{
+       let operation=BlockOperation(),operationID=UUID()
+       operation.addExecutionBlock{[weak self,weak operation] in
+        guard let operation=operation,!operation.isCancelled else{return}
+        let image=AssetImages.decode(data)
+        guard !operation.isCancelled else{return}
+        DispatchQueue.main.async{
+         guard let self=self else{return};self.sourceDecodeOperations.removeValue(forKey:operationID)
+         guard self.sourcePreviewDemand.accepts(ticket,allowed:self.sourcePreviewAllowed,revision:self.sourceFrameRevision),self.project?.id==p.id,self.project?.compileRevision==p.compileRevision else{return}
+         self.assetCache[asset.id]=image;self.scheduleSourceThumbnails()
+        }
+       }
+       self.sourceDecodeOperations[operationID]=operation;AssetImages.queue.addOperation(operation)
+      }
+     }
+    }
    }
   }
  }
- func scheduleSourceThumbnails(){guard sourceThumbnailWork==nil else{return};let work=DispatchWorkItem{[weak self]in guard let self=self else{return};self.sourceThumbnailWork=nil;self.sourceThumbnails.removeAll();self.thumbnailScene.specs.removeAll();self.thumbnailScene.apply(self.sourceFrame,animated:false);self.sourceBrowser.refresh()};sourceThumbnailWork=work;DispatchQueue.main.asyncAfter(deadline:.now()+0.05,execute:work)}
+ func scheduleSourceThumbnails(){
+  guard sourcePreviewAllowed,sourceThumbnailWork==nil,let projectID=project?.id else{return}
+  let ticket=SourcePreviewDemand.Ticket(generation:sourcePreviewDemand.generation,revision:sourceFrameRevision)
+  let work=DispatchWorkItem{[weak self]in
+   guard let self=self,self.sourcePreviewDemand.owns(ticket) else{return}
+   self.sourceThumbnailWork=nil
+   guard self.sourcePreviewDemand.accepts(ticket,allowed:self.sourcePreviewAllowed,revision:self.sourceFrameRevision),self.project?.id==projectID else{self.sourcePreviewDemand.markChanged();return}
+   self.sourceThumbnails.removeAll();self.thumbnailScene.specs.removeAll();self.thumbnailScene.apply(self.sourceFrame,animated:false);self.sourceBrowser.refresh()
+  }
+  sourceThumbnailWork=work;DispatchQueue.main.asyncAfter(deadline:.now()+0.05,execute:work)
+ }
  func sourceThumbnail(_ n:StudioNode)->UIImage? {
   if let image=sourceThumbnails[n.id]{return image}
+  guard sourcePreviewAllowed else{return nil}
   let format=UIGraphicsImageRendererFormat();format.scale=2
   let image=UIGraphicsImageRenderer(size:CGSize(width:72,height:60),format:format).image{context in
    UIColor(studioHex:"#F1F4F8").setFill();context.fill(CGRect(x:0,y:0,width:72,height:60));UIColor(studioHex:"#E2E7EF").setFill()

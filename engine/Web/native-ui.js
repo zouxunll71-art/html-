@@ -21,10 +21,33 @@ function renderNativeChrome(p,page){
  // Custom dialogs sit above system chrome in the preview just as on iOS.
  const modalIDs=page.modalPages||[];for(const [id,element] of views)if(id.startsWith('$shade')||modalIDs.some(m=>id===m||id.startsWith(m+'/')))element.style.zIndex='20000';
 }
+function previewLocalPhoto(projectID,effect){
+ const input=document.createElement('input');input.type='file';input.accept='image/*';input.style.display='none';document.body.append(input);
+ let finished=false;const finish=async status=>{if(finished)return;finished=true;input.remove();await api('/event',{side:'web',projectID,event:{type:'photoResult',id:effect.id,status}}).catch(()=>{});poll()};
+ input.addEventListener('cancel',()=>finish('cancelled'),{once:true});
+ input.onchange=()=>{
+  const file=input.files?.[0];if(!file){finish('cancelled');return}
+  if(!file.type.startsWith('image/')){finish('failed');return}
+  const url=URL.createObjectURL(file),photo=new Image();photo.alt=effect.title;
+  photo.onerror=()=>{URL.revokeObjectURL(url);finish('failed')};
+  photo.onload=()=>{
+   const layer=document.createElement('div');layer.setAttribute('role','dialog');layer.setAttribute('aria-modal','true');layer.style.cssText='position:fixed;inset:0;z-index:99999;background:#0006;display:grid;place-items:center';
+   const panel=document.createElement('section');panel.style.cssText='background:white;color:#17212b;border-radius:16px;padding:24px;width:min(360px,90%);font:16px system-ui';
+   const title=document.createElement('h2');title.textContent=effect.title;const message=document.createElement('p');message.textContent=effect.message;
+   const close=document.createElement('button');close.textContent=effect.close;close.style.cssText='min-height:44px;width:100%';photo.style.cssText='width:100%;max-height:280px;object-fit:contain';
+   close.onclick=()=>{layer.remove();URL.revokeObjectURL(url);finish('selected')};panel.append(title,photo,message,close);layer.append(panel);document.body.append(layer);close.focus();
+  };photo.src=url;
+ };input.click();
+}
+
 function processNativeEffects(p){
  const ids=[];
  for(const effect of p.page.effects||[]){const key=p.projectID+':'+effect.id;ids.push(effect.id);if(nativeEffects.has(key))continue;nativeEffects.add(key);
   if(effect.type==='openURL')window.webkit?.messageHandlers.studio?.postMessage({type:'openURL',url:effect.url});
+  if(effect.type==='photoPreview'){
+   // Linked previews let the iOS owner present the single native picker.
+   if(!p.linked)previewLocalPhoto(p.projectID,effect);
+  }
   if(effect.type==='share'){const blob=new Blob([effect.content],{type:effect.mime||'text/plain'}),url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download=effect.filename;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}
  }
  if(ids.length)api('/ack-effects',{side:'web',projectID:p.projectID,ids}).catch(()=>{});
